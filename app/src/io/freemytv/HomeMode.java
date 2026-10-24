@@ -78,6 +78,7 @@ final class HomeMode {
         // Xiaomi
         "com.miui.tv.analytics", "com.xiaomi.statistic",                              // telemetry
         "com.mitv.tvhome.mitvplus", "com.xm.webcontent",                              // Mi TV+ promo channels, promo web content
+        "com.xiaomi.mitv.handbook", "com.xiaomi.mimusic2",                            // user manual, Mi Music
         // Skyworth (VEON and other badges; MediaTek)
         "com.smartdevice.epopplayer", "com.coocaa.demonow.lightining",               // store demos (start on screen on)
         "com.smartdevice.recommendation",                                             // Coolita promo channels
