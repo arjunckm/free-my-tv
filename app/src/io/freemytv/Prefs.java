@@ -29,6 +29,8 @@ final class Prefs {
     static final int KEY_KTC_TABII = KeyEvent.KEYCODE_BUTTON_8;
     /** Xiaomi's Mi button: BUTTON_4, which the TV hands to its GlobalKeyReceiver for PatchWall (its log: "keyCode = 191"). */
     static final int KEY_MI = KeyEvent.KEYCODE_BUTTON_4;
+    /** The Mi button of the Mi TV 4A 40" (MiTV-AXSO0): BUTTON_2 (its log: "keyCode = 189"), also for PatchWall. */
+    static final int KEY_MI_4A = KeyEvent.KEYCODE_BUTTON_2;
     /** Sony's app buttons, as SONY_KEY + scan code (read from a BRAVIA's log; the key codes are shared). */
     static final int SONY_KEY = 100_000;
     static final int KEY_SONY_CORE = SONY_KEY + 496, KEY_SONY_NETFLIX = SONY_KEY + 583, KEY_SONY_DISNEY = SONY_KEY + 491,
@@ -46,6 +48,7 @@ final class Prefs {
                     KEY_SONY_PLAY}
             : RemoteKeys.STEM_NETFLIX ? new int[] {KEY_STEM_NETFLIX}
             : RemoteKeys.KTC ? new int[] {KEY_KTC_TABII}
+            : RemoteKeys.XIAOMI_4A ? new int[] {KEY_MI_4A}
             : RemoteKeys.XIAOMI ? new int[] {KEY_MI, KEY_XIAOMI_OKKO, KEY_XIAOMI_VK, KEY_XIAOMI_RUTUBE, KEY_XIAOMI_KION,
                     KEY_XIAOMI_WINK, KEY_XIAOMI_IVI}
             : new int[] {KEY_NETFLIX, KEY_YOUTUBE, KEY_PRIME, KEY_TCL_CHANNEL};
@@ -139,6 +142,9 @@ final class Prefs {
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
 
+    static boolean dateTime() { return sp().getBoolean("dateTime", true); }
+    static void setDateTime(boolean on) { put("dateTime", on); }
+
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
 
@@ -194,7 +200,7 @@ final class Prefs {
             case KEY_YOUTUBE: return "com.google.android.youtube.tv";
             case KEY_PRIME: return "com.amazon.amazonvideo.livingroom";
             case KEY_TCL_CHANNEL: return "";
-            case KEY_MI: return HomeMode.PKG;   // our home screen: the remote has no other Home button
+            case KEY_MI: case KEY_MI_4A: return HomeMode.PKG;   // our home screen: the remote has no other Home button
             default: return "";
         }
     }

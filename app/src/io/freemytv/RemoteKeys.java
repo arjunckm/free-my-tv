@@ -38,11 +38,18 @@ final class RemoteKeys {
      * devices we run on, whose remotes have a Home button; Formovie's Xiaomi projectors have their own remote.
      */
     static final boolean XIAOMI = is("Xiaomi") && !FORMOVIE && Build.MODEL.startsWith("MiTV-M");
+    /**
+     * Mi TV 4A 40" (2021; MiTV-AXSO0, Amlogic, Android TV 9 tested): its Mi button sends BUTTON_2 (keyCode 189), which
+     * the same GlobalKeyReceiver turns into PatchWall.
+     */
+    static final boolean XIAOMI_4A = is("Xiaomi") && !FORMOVIE && Build.MODEL.startsWith("MiTV-AXSO0");
+    /** Xiaomi TVs whose Mi button opens PatchWall unless we take it. */
+    static final boolean XIAOMI_MI = XIAOMI || XIAOMI_4A;
     /** Brands whose Netflix button is STEM_1, a global key (MediaTek): only that button is ours. */
     static final boolean STEM_NETFLIX = VESTEL || FORMOVIE;
 
     static boolean supported() {
-        return TCL || STEM_NETFLIX || KTC || SONY || XIAOMI;
+        return TCL || STEM_NETFLIX || KTC || SONY || XIAOMI_MI;
     }
 
     private static boolean is(String maker) {
