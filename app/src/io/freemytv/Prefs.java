@@ -100,6 +100,44 @@ final class Prefs {
         version++;
     }
 
+    // MARK: - Phone companion (Companion): every setting as JSON, and back
+
+    /** Settings the phone may read and write; nothing else in the file (caches, state) leaves the TV. */
+    private static final java.util.regex.Pattern SYNCED = java.util.regex.Pattern.compile(
+            "language|temperature|theme|city|latitude|longitude|shelf|topButtons|sounds|weather|heroCards|dateTime|quotes|photos|coin\\d+");
+
+    /** {"values": {name: value}, "keys": {remote key code: package}} */
+    static org.json.JSONObject exportAll() throws org.json.JSONException {
+        org.json.JSONObject values = new org.json.JSONObject(), keys = new org.json.JSONObject();
+        for (java.util.Map.Entry<String, ?> e : sp().getAll().entrySet()) {
+            if (SYNCED.matcher(e.getKey()).matches()) values.put(e.getKey(), e.getValue());
+        }
+        for (int key : KEYS) keys.put(String.valueOf(key), keyApp(key));
+        return new org.json.JSONObject().put("values", values).put("keys", keys);
+    }
+
+    /** Applies what exportAll wrote (the same names and types); unknown names are ignored. */
+    static void importAll(org.json.JSONObject in) {
+        org.json.JSONObject values = in.optJSONObject("values"), keys = in.optJSONObject("keys");
+        if (values != null) {
+            SharedPreferences.Editor ed = sp().edit();
+            for (java.util.Iterator<String> it = values.keys(); it.hasNext(); ) {
+                String k = it.next();
+                Object v = values.opt(k);
+                if (!SYNCED.matcher(k).matches()) continue;
+                if (v instanceof Boolean) ed.putBoolean(k, (Boolean) v);
+                else if (v instanceof Integer) ed.putInt(k, (Integer) v);
+                else if (v instanceof String) ed.putString(k, (String) v);
+            }
+            ed.apply();
+        }
+        if (keys != null) {
+            for (int key : KEYS) if (keys.has(String.valueOf(key))) setKeyApp(key, keys.optString(String.valueOf(key)));
+        }
+        version++;
+        Ui.applyLanguage();
+    }
+
     // MARK: - Language and units
 
     /** "auto" or a language code as picked ("pt", "fr", "zh-CN"…); Ui.applyLanguage finds its catalogue. */
