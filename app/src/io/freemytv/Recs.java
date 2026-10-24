@@ -48,6 +48,7 @@ final class Recs {
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
+        boolean preferred;      // in one of prefer_languages (not saved: only orders a new list)
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
     }
 
@@ -442,6 +443,25 @@ final class Recs {
         // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
         List<Pick> list = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
+        if (!Config.PREFER_LANGUAGES.isEmpty()) {
+            // prefer_languages: those titles lead (trending among them, then the most popular on the TV's services),
+            // up to 16 of the 24; the rest of the list is as before.
+            List<Pick> prefMovies = new ArrayList<>(), prefShows = new ArrayList<>();
+            for (Pick hp : hotMovies) if (hp.preferred) prefMovies.add(hp);
+            for (Pick hp : hotShows) if (hp.preferred) prefShows.add(hp);
+            String own = common + "&with_original_language=" + URLEncoder.encode(Config.PREFER_LANGUAGES, "UTF-8");
+            try {
+                JSONArray m = get("/discover/movie?vote_count.gte=10&primary_release_date.gte=" + day(-730)
+                        + "&primary_release_date.lte=" + day(0) + own).getJSONArray("results");
+                JSONArray s = get("/discover/tv?vote_count.gte=10&air_date.gte=" + day(-365) + "&air_date.lte=" + day(0)
+                        + own).getJSONArray("results");
+                for (int i = 0; i < m.length(); i++) add(prefMovies, m.getJSONObject(i), "movie");
+                for (int i = 0; i < s.length(); i++) add(prefShows, s.getJSONObject(i), "tv");
+            } catch (Exception e) {
+                AppLog.w("prefer_languages: " + e);   // the list goes on without them
+            }
+            alternate(list, seen, prefMovies, prefShows, 16);
+        }
         alternate(list, seen, hotMovies, hotShows, 24);
         alternate(list, seen, newMovies, newShows, 24);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
@@ -485,6 +505,8 @@ final class Recs {
         p.kind = kind;
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
         p.backdrop = backdrop;
+        p.preferred = ("|" + Config.PREFER_LANGUAGES + "|").contains("|" + o.optString("original_language") + "|")
+                && !Config.PREFER_LANGUAGES.isEmpty();
         list.add(p);
     }
 
@@ -618,6 +640,7 @@ final class Recs {
 
     private long sourceStamp() {
         long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0);
+        stamp = stamp * 31L + Config.PREFER_LANGUAGES.hashCode();
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }
