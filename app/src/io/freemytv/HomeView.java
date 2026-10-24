@@ -139,7 +139,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // At the top: tabs (0 to 2) and icon-only buttons (3 to 5); the three cards
     private int tab, topIndex, cardIndex;
     private int widgetIndex;    // with TalkBack on, the drawer's weather (0) or quotes (1) card can take the focus
-    private List<Recs.Pick> cards = new ArrayList<>();
+    private List<Recs.Pick> cards = new ArrayList<>();      // the three on screen
+    private List<Recs.Pick> allCards = new ArrayList<>();   // up to Prefs.heroCards() of them; cards starts at cardFirst
+    private int cardFirst;
     // The three tabs, then the round buttons at the top right (up to HomeApps.MAX_TOP).
     private final Spring[] topFocus = new Spring[3 + HomeApps.MAX_TOP];
     private final RectF[] topRects = new RectF[3 + HomeApps.MAX_TOP];
@@ -2787,7 +2789,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The three cards of the current tab (Explore, Movies, Shows) and the background taken from the first one. */
     private void updateCards() {
-        List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
+        List<Recs.Pick> all = recs.now(TAB_KIND[tab]);
+        if (!samePicks(all, allCards)) allCards = all;
+        // Three are on screen; → past the last one slides the window along (Prefs.heroCards in all).
+        cardFirst = Math.max(0, Math.min(cardFirst, allCards.size() - 3));
+        List<Recs.Pick> list = new ArrayList<>(allCards.subList(cardFirst, Math.min(allCards.size(), cardFirst + 3)));
         if (!samePicks(list, cards)) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
@@ -2813,6 +2819,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void selectTab(int index) {
         if (index == tab) return;
         tab = index;
+        cardFirst = 0;
         updateCards();
         heroDirty = true;
     }
@@ -2898,7 +2905,31 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
+        drawCardDots(c);
         if (HomeData.coinCount() > 0) drawQuotes(c);
+    }
+
+    /**
+     * Where the three cards are among the heroCards picks, on the tab row at the right: one dot per pick, the three on
+     * screen as longer pills, the focused one the brightest.
+     */
+    private void drawCardDots(Canvas c) {
+        int n = allCards.size();
+        if (n <= 3) return;
+        float d = 11 * k, pill = 32 * k, gap = 9 * k;
+        float width = (n - 3) * d + 3 * pill + (n - 1) * gap;
+        float x = CONTENT_R * k - width, cy = topRects[0].centerY();
+        int ink = tone(L_INK, WHITE);
+        fill.setShader(null);
+        for (int i = 0; i < n; i++) {
+            boolean on = i >= cardFirst && i < cardFirst + 3;
+            boolean focused = zone == Z_CARDS && i == cardFirst + cardIndex;
+            float w = on ? pill : d;
+            fill.setColor(Ui.alpha(ink, focused ? 1f : on ? 0.6f : 0.3f));
+            cell.set(x, cy - d / 2, x + w, cy + d / 2);
+            c.drawRoundRect(cell, d / 2, d / 2, fill);
+            x += w + gap;
+        }
     }
 
     private boolean picksOn() {
@@ -3045,7 +3076,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS:
                 if (dx != 0) {
                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
-                    if (next == cardIndex) return true;
+                    if (next == cardIndex) {
+                        // At the edge of the three: slide to the next (or the previous) of the heroCards picks.
+                        int first = cardFirst + dx;
+                        if (first < 0 || first + 3 > allCards.size()) return true;
+                        cardFirst = first;
+                        updateCards();
+                    }
                     cardIndex = next;
                 } else if (dy < 0) {
                     zone = Z_TOP;

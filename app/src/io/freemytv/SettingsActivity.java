@@ -660,8 +660,8 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, quotes, date and time, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, DATE_TIME_ROW = 8, COIN_ROWS = 9;
+        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, quotes, date and time, hero cards, then one row per coin. */
+        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, DATE_TIME_ROW = 8, HERO_CARDS_ROW = 9, COIN_ROWS = 10;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -680,6 +680,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("City"));
             l.add(Ui.tr("Quotes widget"));
             l.add(Ui.tr("Date and time"));
+            l.add(Ui.tr("Hero cards"));
             l.add("Bitcoin");
             l.add("Ethereum");
             l.add("Solana");
@@ -704,6 +705,7 @@ public class SettingsActivity extends Activity {
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[7] = onOff(Prefs.quotes());
             v[DATE_TIME_ROW] = onOff(Prefs.dateTime());
+            v[HERO_CARDS_ROW] = String.valueOf(Prefs.heroCards());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
@@ -799,6 +801,11 @@ public class SettingsActivity extends Activity {
                 case CITY_ROW: return;
                 case 7: Prefs.setQuotes(!Prefs.quotes()); break;
                 case DATE_TIME_ROW: Prefs.setDateTime(!Prefs.dateTime()); break;
+                case HERO_CARDS_ROW: {
+                    int n = Prefs.heroCards() + dir;
+                    Prefs.setHeroCards(n > 8 ? 3 : n < 3 ? 8 : n);   // 3 to 8, around
+                    break;
+                }
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));

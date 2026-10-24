@@ -95,6 +95,11 @@ final class Prefs {
         version++;
     }
 
+    private static void put(String key, int value) {
+        sp().edit().putInt(key, value).apply();
+        version++;
+    }
+
     // MARK: - Language and units
 
     /** "auto" or a language code as picked ("pt", "fr", "zh-CN"…); Ui.applyLanguage finds its catalogue. */
@@ -141,6 +146,10 @@ final class Prefs {
 
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
+
+    /** How many titles the top cards browse through (3 are on screen at a time; → past the last one brings the next). */
+    static int heroCards() { return Math.max(3, Math.min(8, sp().getInt("heroCards", 8))); }
+    static void setHeroCards(int n) { put("heroCards", Math.max(3, Math.min(8, n))); }
 
     static boolean dateTime() { return sp().getBoolean("dateTime", true); }
     static void setDateTime(boolean on) { put("dateTime", on); }
