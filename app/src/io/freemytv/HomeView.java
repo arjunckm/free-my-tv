@@ -773,7 +773,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         long minute = now / 60_000;
         if (minute == clockMinute || clockPaint == null) return false;
         clockMinute = minute;
-        clockText = Ui.clock(now);
+        clockText = Ui.datePattern("format|h:mm a").format(now);   // with AM/PM (Ui.clock has none, like the iPhone)
         dateText = Ui.date(now);
         topTimeText = dateText + "  ·  " + clockText;
         return true;
