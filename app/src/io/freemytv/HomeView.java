@@ -93,6 +93,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
     // The tab bar is a 68 px capsule; the cards sit on the 5-column grid (the wide one spans 3).
+    /** The hero: one card 80% of the screen wide, the next one behind it (HERO_PEEK of its size, its edge showing on the right). */
+    private static final float L_HERO_T = 250, L_HERO_W = 1536, L_HERO_H = 540, HERO_PEEK = 0.9f, HERO_SLIDE_MS = 520, HERO_EVERY_MS = 5000;
     private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 158, L_TABBAR_H = 68, L_CARDS_TOP = 262, L_CARD_H = 442;
     private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
     private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
@@ -140,8 +142,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int tab, topIndex, cardIndex;
     private int widgetIndex;    // with TalkBack on, the drawer's weather (0) or quotes (1) card can take the focus
     private List<Recs.Pick> cards = new ArrayList<>();      // the three on screen
-    private List<Recs.Pick> allCards = new ArrayList<>();   // up to Prefs.heroCards() of them; cards starts at cardFirst
-    private int cardFirst;
+    private List<Recs.Pick> allCards = new ArrayList<>();   // up to Prefs.heroCards() of them; the hero shows allCards[cardFirst]
+    private int cardFirst, slidePrev, slideDir;
+    private long slideAt, autoAt;                          // the slide in progress, and when the next one comes by itself
+    private Paint heroTitle, heroMeta, heroRim;
+    private LinearGradient heroScrim;
+    private float heroScrimH;
     // The three tabs, then the round buttons at the top right (up to HomeApps.MAX_TOP).
     private final Spring[] topFocus = new Spring[3 + HomeApps.MAX_TOP];
     private final RectF[] topRects = new RectF[3 + HomeApps.MAX_TOP];
@@ -607,6 +613,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle = Ui.text(Ui.semibold, 31 * k, L_INK);
         lCardTitle.setLetterSpacing(0.012f);
         lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
+        heroTitle = Ui.text(Ui.displaySemibold, 52 * k, 0xFFFFFFFF);
+        heroMeta = Ui.text(Ui.medium, 28 * k, 0xE6FFFFFF);
+        heroRim = new Paint(Paint.ANTI_ALIAS_FLAG);
+        heroRim.setStyle(Paint.Style.STROKE);
+        heroRim.setStrokeWidth(3 * k);
+        heroScrim = null;
         lQuote = Ui.numbers(Ui.regular, 21 * k, L_FAINT);
         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
         lTip.setTextAlign(Paint.Align.CENTER);
@@ -670,7 +682,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
         boolean heroMoving = heroFocus.step(dt);
-        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
+        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt) | tickHeroSlide(up);
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
@@ -2775,9 +2787,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, left = MARGIN * k, tall = L_TALL_W * k;
         float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g;
-        cardRects[0].set(left, top, left + wide, top + ch);
-        cardRects[1].set(cardRects[0].right + g, top, cardRects[0].right + g + tall, top + ch);
-        cardRects[2].set(cardRects[1].right + g, top, cardRects[1].right + g + tall, top + ch);
+        cardRects[0].set(left, L_HERO_T * k, left + L_HERO_W * k, (L_HERO_T + L_HERO_H) * k);   // the hero; the others stay empty
+        cardRects[1].setEmpty();
+        cardRects[2].setEmpty();
         for (RectF r : cardRects) snap(r);
         for (HomeApps.Item it : lightButtons) {
             Symbols.warm(getContext(), it.symbol, 27 * k);
@@ -2791,9 +2803,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void updateCards() {
         List<Recs.Pick> all = recs.now(TAB_KIND[tab]);
         if (!samePicks(all, allCards)) allCards = all;
-        // Three are on screen; → past the last one slides the window along (Prefs.heroCards in all).
-        cardFirst = Math.max(0, Math.min(cardFirst, allCards.size() - 3));
-        List<Recs.Pick> list = new ArrayList<>(allCards.subList(cardFirst, Math.min(allCards.size(), cardFirst + 3)));
+        // One is the hero (Prefs.heroCards in all); the next one is behind it.
+        cardFirst = Math.max(0, Math.min(cardFirst, allCards.size() - 1));
+        List<Recs.Pick> list = allCards.isEmpty() ? new ArrayList<>() : java.util.Collections.singletonList(allCards.get(cardFirst));
         if (!samePicks(list, cards)) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
@@ -2820,6 +2832,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (index == tab) return;
         tab = index;
         cardFirst = 0;
+        slideAt = 0;
+        autoAt = SystemClock.uptimeMillis();
         updateCards();
         heroDirty = true;
     }
@@ -2901,37 +2915,160 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (i == tab) lTabOn.setColor(blend(tone(L_INK, WHITE), L_INK, focus));   // always dark on the white pill
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
-        int top = -1;
-        for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
-        for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
-        if (top >= 0) drawLightCard(c, top);
+        drawHeroCards(c);
         drawCardDots(c);
         if (HomeData.coinCount() > 0) drawQuotes(c);
     }
 
-    /**
-     * Where the three cards are among the heroCards picks, on the tab row at the right: one dot per pick, the three on
-     * screen as longer pills, the focused one the brightest.
-     */
+    /** ← or → on the hero (dir 1 or -1), or the 5-second timer: the next title slides in, the one before it goes out. */
+    private void slideHero(int dir) {
+        int n = allCards.size();
+        if (n < 2) return;
+        slidePrev = cardFirst;
+        slideDir = dir;
+        cardFirst = (cardFirst + dir + n) % n;
+        slideAt = SystemClock.uptimeMillis();
+        autoAt = slideAt;
+        updateCards();
+        heroDirty = true;
+    }
+
+    /** Ends the slide, and brings the next title by itself every 5 s while nothing is focused on the hero. */
+    private boolean tickHeroSlide(long up) {
+        if (slideAt != 0 && up - slideAt >= HERO_SLIDE_MS) slideAt = 0;
+        if (autoAt == 0) autoAt = up;
+        boolean busy = zone == Z_CARDS || drawerOpen || sheetOpen || !picksOn() || sheet.value > 0.001f || drawer.value > 0.001f;
+        if (busy) autoAt = up;   // the timer starts again once you leave the hero
+        else if (slideAt == 0 && allCards.size() > 1 && up - autoAt >= HERO_EVERY_MS) slideHero(1);
+        return slideAt != 0;
+    }
+
+    /** The hero: the title in front, 80% of the screen wide, and the next one behind it, its edge showing on the right. */
+    private void drawHeroCards(Canvas c) {
+        int n = allCards.size();
+        RectF main = cardRects[0];
+        float focus = Ui.clamp(cardFocus[0].value);
+        if (n == 0 || cardFirst >= n) {
+            cell.set(main);
+            fill.setShader(null);
+            fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
+            c.drawRoundRect(cell, 26 * k, 26 * k, fill);
+            return;
+        }
+        float pw = main.width() * HERO_PEEK, ph = main.height() * HERO_PEEK, right = CONTENT_R * k;
+        RectF peek = heroPeek, front = heroFront;
+        peek.set(right - pw, main.centerY() - ph / 2, right, main.centerY() + ph / 2);
+        float t = slideAt == 0 ? 1 : Ui.clamp((SystemClock.uptimeMillis() - slideAt) / HERO_SLIDE_MS);
+        float p = 1 - (1 - t) * (1 - t) * (1 - t);   // ease out
+        float away = 220 * k;
+        Recs.Pick now = allCards.get(cardFirst), next = allCards.get((cardFirst + 1) % n);
+        if (t >= 1) {
+            if (n > 1) drawHeroCard(c, next, peek, 0.4f, 1, 0, false);
+            drawHeroCard(c, now, main, 0, 1, focus, true);
+        } else if (slideDir > 0) {
+            // The one behind comes forward; the one in front slides out to the left and fades.
+            if (n > 2) drawHeroCard(c, next, peek, 0.4f, p, 0, false);
+            lerp(front, peek, main, p);
+            drawHeroCard(c, now, front, 0.4f * (1 - p), 1, 0, p > 0.6f);
+            front.set(main);
+            front.offset(-away * p, 0);
+            drawHeroCard(c, allCards.get(slidePrev), front, 0, 1 - p, 0, true);
+        } else {
+            // Back: the one in front steps behind, and the one before it slides in from the left.
+            if (n > 2) drawHeroCard(c, allCards.get((cardFirst + 2) % n), peek, 0.4f, 1 - p, 0, false);
+            lerp(front, main, peek, p);
+            drawHeroCard(c, next, front, 0.4f * p, 1, 0, p < 0.4f);
+            front.set(main);
+            front.offset(-away * (1 - p), 0);
+            drawHeroCard(c, now, front, 0, p, 0, true);
+        }
+    }
+
+    private final RectF heroPeek = new RectF(), heroFront = new RectF();
+
+    private static void lerp(RectF out, RectF a, RectF b, float t) {
+        out.set(a.left + (b.left - a.left) * t, a.top + (b.top - a.top) * t,
+                a.right + (b.right - a.right) * t, a.bottom + (b.bottom - a.bottom) * t);
+    }
+
+    /** One hero card: the photo, rounded; dimmed when it is the one behind; with its title over a scrim when `text`. */
+    private void drawHeroCard(Canvas c, Recs.Pick p, RectF base, float dim, float alpha, float focus, boolean text) {
+        if (alpha <= 0.01f) return;
+        float s = 1 + 0.02f * focus, r0 = 26 * k;
+        float bw = base.width(), bh = base.height();
+        float cx = base.centerX(), cy = base.centerY() - 4 * k * focus;
+        cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
+        float r = r0 * s;
+        int saved = -1;
+        if (alpha < 0.995f) saved = c.saveLayerAlpha(cell.left - 40 * k, cell.top - 40 * k, cell.right + 40 * k, cell.bottom + 60 * k,
+                Math.round(255 * alpha));
+        if (dim < 0.01f) {
+            tmp.set(cell);
+            tmp.offset(0, (12 + 10 * focus) * k);
+            shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.14f, 0.2f) * focus));
+            shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+        }
+        Backdrop b = p == null ? null : recs.backdrop(p);
+        if (b != null && b.wide != null) {
+            roundImage(c, b.wide, b.wideShader, cell, r);
+        } else {
+            fill.setShader(null);
+            fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
+            c.drawRoundRect(cell, r, r, fill);
+        }
+        if (text && p != null) {
+            // A scrim over the lower part, for the title.
+            float sh = cell.height() * 0.55f;
+            if (heroScrim == null || heroScrimH != cell.height()) {
+                heroScrimH = cell.height();
+                heroScrim = new LinearGradient(0, 0, 0, heroScrimH, new int[] {0, 0, 0x66000000, 0xB8000000},
+                        new float[] {0, 0.42f, 0.74f, 1}, Shader.TileMode.CLAMP);
+            }
+            c.save();
+            c.translate(cell.left, cell.top);
+            fill.setShader(heroScrim);
+            c.drawRoundRect(0, 0, cell.width(), cell.height(), r, r, fill);
+            fill.setShader(null);
+            c.restore();
+            float x = cell.left + 48 * k, width = cell.width() * 0.72f;
+            fitPaint.set(heroTitle);
+            c.drawText(TextUtils.ellipsize(p.title, fitPaint, width, TextUtils.TruncateAt.END).toString(), x, cell.bottom - 92 * k, heroTitle);
+            if (p.meta != null && !p.meta.isEmpty()) {
+                fitPaint.set(heroMeta);
+                c.drawText(TextUtils.ellipsize(p.meta, fitPaint, width, TextUtils.TruncateAt.END).toString(), x, cell.bottom - 44 * k, heroMeta);
+            }
+        }
+        if (dim >= 0.01f) {
+            fill.setShader(null);
+            fill.setColor(Ui.alpha(0xFF000000, dim));
+            c.drawRoundRect(cell, r, r, fill);
+        }
+        if (focus > 0.01f) {
+            heroRim.setColor(Ui.alpha(0xFFFFFFFF, 0.92f * focus));
+            heroRim.setStrokeWidth(3.5f * k);
+            c.drawRoundRect(cell.left + 1.5f * k, cell.top + 1.5f * k, cell.right - 1.5f * k, cell.bottom - 1.5f * k, r, r, heroRim);
+        }
+        if (saved >= 0) c.restoreToCount(saved);
+    }
+
+    /** Where the hero is among the heroCards picks, on the tab row at the right: one dot per pick, the current one a pill. */
     private void drawCardDots(Canvas c) {
         int n = allCards.size();
-        if (n <= 3) return;
+        if (n <= 1) return;
         float d = 11 * k, pill = 32 * k, gap = 9 * k;
-        float width = (n - 3) * d + 3 * pill + (n - 1) * gap;
+        float width = (n - 1) * d + pill + (n - 1) * gap;
         float x = CONTENT_R * k - width, cy = topRects[0].centerY();
         int ink = tone(L_INK, WHITE);
         fill.setShader(null);
         for (int i = 0; i < n; i++) {
-            boolean on = i >= cardFirst && i < cardFirst + 3;
-            boolean focused = zone == Z_CARDS && i == cardFirst + cardIndex;
+            boolean on = i == cardFirst;
             float w = on ? pill : d;
-            fill.setColor(Ui.alpha(ink, focused ? 1f : on ? 0.6f : 0.3f));
+            fill.setColor(Ui.alpha(ink, on ? 0.9f : 0.3f));
             cell.set(x, cy - d / 2, x + w, cy + d / 2);
             c.drawRoundRect(cell, d / 2, d / 2, fill);
             x += w + gap;
         }
     }
-
     private boolean picksOn() {
         return Recs.hasKey(getContext());
     }
@@ -2963,67 +3100,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * a soft shadow; when focused, it grows 5%, rises and lights up its border. Below it, the title (and on the large
      * card, genre · runtime · service).
      */
-    private void drawLightCard(Canvas c, int i) {
-        RectF base = cardRects[i];
-        Recs.Pick p = i < cards.size() ? cards.get(i) : null;
-        float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v;
-        float bw = base.width(), bh = base.height(), r0 = 18 * k;
-        float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
-        cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
-        float r = r0 * s;
-        c.save();
-        c.translate(cx, cy);
-        c.scale(s, s);
-        tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-        tmp.offset(0, (10 + 14 * f) * k);
-        shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
-        shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
-        c.restore();
-        Backdrop b = p == null ? null : recs.backdrop(p);
-        Bitmap img = b == null ? null : (i == 0 ? b.wide : b.tall);
-        if (img != null) {
-            roundImage(c, img, i == 0 ? b.wideShader : b.tallShader, cell, r);
-        } else {
-            fill.setShader(null);
-            fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
-            c.drawRoundRect(cell, r, r, fill);
-        }
-        if (f > 0.01f) {
-            if (lightSheens.length != cardRects.length) {
-                lightSheens = new LinearGradient[cardRects.length];
-                lightRims = new LinearGradient[cardRects.length];
-                lightShaderW = new float[cardRects.length];
-            }
-            if (lightSheens[i] == null || lightShaderW[i] != bw) {
-                lightSheens[i] = new LinearGradient(-bw / 2, -bh / 2, 0, bh / 2, 0x38FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP);
-                lightRims[i] = new LinearGradient(0, -bh / 2, 0, bh / 2, 0xE6FFFFFF, 0x59FFFFFF, Shader.TileMode.CLAMP);
-                lightShaderW[i] = bw;
-            }
-            int alpha = Math.round(255 * f);
-            c.save();
-            c.translate(cx, cy);
-            c.scale(s, s);
-            tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-            sheen.setShader(lightSheens[i]);
-            sheen.setAlpha(alpha);
-            c.drawRoundRect(tmp, r0, r0, sheen);
-            sheen.setAlpha(255);
-            rim.setShader(lightRims[i]);
-            rim.setAlpha(alpha);
-            rim.setStrokeWidth(2.5f * k / s);
-            c.drawRoundRect(tmp, r0, r0, rim);
-            rim.setStrokeWidth(2.5f * k);
-            rim.setAlpha(255);
-            c.restore();
-        }
-        if (p == null) return;
-        fitPaint.set(lCardTitle);
-        c.drawText(TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 46 * k, lCardTitle);
-        if (i == 0 && p.meta != null && !p.meta.isEmpty()) {
-            fitPaint.set(lCardMeta);
-            c.drawText(TextUtils.ellipsize(p.meta, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
-        }
-    }
 
     /**
      * The round buttons (Live TV, HDMI Inputs and Settings by default): icon-only glass circles (light by day, smoked at
@@ -3076,13 +3152,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS:
                 if (dx != 0) {
                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
-                    if (next == cardIndex) {
-                        // At the edge of the three: slide to the next (or the previous) of the heroCards picks.
-                        int first = cardFirst + dx;
-                        if (first < 0 || first + 3 > allCards.size()) return true;
-                        cardFirst = first;
-                        updateCards();
-                    }
+                    if (allCards.size() < 2) return true;
+                    slideHero(dx);   // ← and → go through the heroCards picks, around
                     cardIndex = next;
                 } else if (dy < 0) {
                     zone = Z_TOP;
