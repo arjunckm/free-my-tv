@@ -22,7 +22,8 @@ command -v "$JAVAC" >/dev/null 2>&1 || { echo "JDK not found. Install JDK 17 and
 
 # --- Settings: config.properties -> Config.java
 if [ ! -f config.properties ]; then
-  cp config.example.properties config.properties
+  # Fork: start from the Bengaluru settings when they are there
+  if [ -f config.bangalore.properties ]; then cp config.bangalore.properties config.properties; else cp config.example.properties config.properties; fi
   echo "Created config.properties: add your TMDB key and your city there (optional), then build again."
 fi
 prop() {

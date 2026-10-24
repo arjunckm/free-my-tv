@@ -81,6 +81,8 @@ final class Recs {
         {"apple tv", "appletv", "com.apple.atve.sony.appletv"},   // Sony's own build
         {"apple tv", "appletv", "com.apple.atve.amazon.appletv"},
         {"hotstar", "hotstar", "in.startv.hotstar"},   // TMDB: "JioHotstar" (earlier "Disney Plus Hotstar")
+        {"sony liv", "sonyliv", "com.sonyliv"},          // India (fork)
+        {"zee5", "zee5", "com.graymatrix.did"},          // India (fork)
         {"okko", "okko", "ru.more.play"},
         {"crunchyroll", "crunchyroll", "com.crunchyroll.crunchyroid"},
         {"oneplay", "oneplay", "net.cme.voyo.cz.tvapp"},    // Czechia: Voyo and O2 TV became Oneplay, same app
@@ -97,6 +99,8 @@ final class Recs {
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
         SERVICE_NAME.put("hotstar", "JioHotstar");
+        SERVICE_NAME.put("sonyliv", "SonyLIV");
+        SERVICE_NAME.put("zee5", "ZEE5");
         SERVICE_NAME.put("okko", "Okko");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
         SERVICE_NAME.put("oneplay", "Oneplay");

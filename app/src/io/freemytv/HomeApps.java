@@ -94,6 +94,10 @@ final class HomeApps {
         {"prime", "Prime Video", "com.amazon.amazonvideo.livingroom", "1A98FF", "tint", "0.96"},
         {"prime", "Prime Video", "com.amazon.firebat", "1A98FF", "tint", "0.96"},
         {"prime", "Prime Video", "com.amazon.avod", "1A98FF", "tint", "0.96"},
+        // India (fork): JioHotstar, SonyLIV and ZEE5 after the big three
+        {"hotstar", "JioHotstar", "in.startv.hotstar", "0F1C5C", "", "1"},
+        {"sonyliv", "SonyLIV", "com.sonyliv", "F5A623", "", "1"},
+        {"zee5", "ZEE5", "com.graymatrix.did", "8230C6", "", "1"},
         {"disney", "Disney+", "com.disney.disneyplus", "1838C8", "", "1"},
         {"max", "Max", "com.wbd.stream", "6C3BE0", "", "1.32"},
         {"max", "HBO Max", "com.hbo.hbonow", "6C3BE0", "", "1.32"},
