@@ -104,7 +104,7 @@ final class Prefs {
 
     /** Settings the phone may read and write; nothing else in the file (caches, state) leaves the TV. */
     private static final java.util.regex.Pattern SYNCED = java.util.regex.Pattern.compile(
-            "language|temperature|theme|city|latitude|longitude|shelf|topButtons|sounds|weather|heroCards|dateTime|quotes|photos|coin\\d+");
+            "language|temperature|theme|city|latitude|longitude|shelf|topButtons|sounds|weather|heroCards|hero|heroPhotos|dateTime|quotes|photos|coin\\d+");
 
     /** {"values": {name: value}, "keys": {remote key code: package}} */
     static org.json.JSONObject exportAll() throws org.json.JSONException {
@@ -116,6 +116,51 @@ final class Prefs {
         return new org.json.JSONObject().put("values", values).put("keys", keys);
     }
 
+    private static final java.util.regex.Pattern PACKAGE = java.util.regex.Pattern.compile("[A-Za-z0-9_.]{1,200}");
+
+    /**
+     * Whether `v` is something this setting can hold. The home screen reads these with getString/getBoolean/getInt, which
+     * throw on another type, so a wrong value from outside must never be stored.
+     */
+    private static boolean validValue(String key, Object v) {
+        switch (key) {
+            case "sounds": case "weather": case "dateTime": case "quotes": case "photos": case "hero":
+                return v instanceof Boolean;
+            case "heroPhotos":
+                return v instanceof String && ((String) v).length() <= 400 && ((String) v).matches("[A-Za-z0-9_.,-]*");
+            case "heroCards":
+                return v instanceof Integer && (Integer) v >= 3 && (Integer) v <= 8;
+            case "language":
+                if (!(v instanceof String)) return false;
+                if (v.equals("auto")) return true;
+                for (String code : Ui.languages()) if (code.equals(v)) return true;
+                return false;
+            case "temperature":
+                return "auto".equals(v) || "C".equals(v) || "F".equals(v);
+            case "theme":
+                return "auto".equals(v) || "light".equals(v) || "dark".equals(v);
+            case "city":
+                return v instanceof String && ((String) v).length() <= 100 && !((String) v).matches(".*\\p{Cntrl}.*");
+            case "latitude": case "longitude":
+                try {
+                    double d = Double.parseDouble((String) v);
+                    return Math.abs(d) <= (key.equals("latitude") ? 90 : 180);
+                } catch (RuntimeException e) {
+                    return false;
+                }
+            case "shelf":
+                return v instanceof String && ((String) v).length() <= 4000 && ((String) v).matches("[A-Za-z0-9_.,]*");
+            case "topButtons":
+                if (!(v instanceof String)) return false;
+                for (String part : ((String) v).split(",")) {
+                    if (!part.isEmpty() && !HomeApps.TOP_DEFAULT.contains(part)) return false;
+                }
+                return true;
+            default:
+                return key.startsWith("coin") && v instanceof Boolean;
+        }
+    }
+
     /** Applies what exportAll wrote (the same names and types); unknown names are ignored. */
     static void importAll(org.json.JSONObject in) {
         org.json.JSONObject values = in.optJSONObject("values"), keys = in.optJSONObject("keys");
@@ -124,7 +169,7 @@ final class Prefs {
             for (java.util.Iterator<String> it = values.keys(); it.hasNext(); ) {
                 String k = it.next();
                 Object v = values.opt(k);
-                if (!SYNCED.matcher(k).matches()) continue;
+                if (!SYNCED.matcher(k).matches() || !validValue(k, v)) continue;   // the right kind of value, or it is ignored
                 if (v instanceof Boolean) ed.putBoolean(k, (Boolean) v);
                 else if (v instanceof Integer) ed.putInt(k, (Integer) v);
                 else if (v instanceof String) ed.putString(k, (String) v);
@@ -132,7 +177,10 @@ final class Prefs {
             ed.apply();
         }
         if (keys != null) {
-            for (int key : KEYS) if (keys.has(String.valueOf(key))) setKeyApp(key, keys.optString(String.valueOf(key)));
+            for (int key : KEYS) {
+                String pkg = keys.optString(String.valueOf(key), null);
+                if (pkg != null && (pkg.isEmpty() || PACKAGE.matcher(pkg).matches())) setKeyApp(key, pkg);
+            }
         }
         version++;
         Ui.applyLanguage();
@@ -189,6 +237,26 @@ final class Prefs {
     static int heroCards() { return Math.max(3, Math.min(8, sp().getInt("heroCards", 8))); }
     static void setHeroCards(int n) { put("heroCards", Math.max(3, Math.min(8, n))); }
 
+    /**
+     * The hero section: the big cards with TMDB's picks. Off, nothing is asked of TMDB (not for the home screen, not for the
+     * screensaver) and three of your own photos (Photos, chosen in heroPhotos) take its place.
+     */
+    static boolean hero() { return sp().getBoolean("hero", true); }
+    static void setHero(boolean on) { put("hero", on); }
+
+    /** File names (Photos) of the photos that replace the hero while it is off: up to 3; none chosen means the first 3. */
+    static List<String> heroPhotos() {
+        List<String> out = new ArrayList<>();
+        for (String name : sp().getString("heroPhotos", "").split(",")) if (!name.isEmpty() && out.size() < 3) out.add(name);
+        return out;
+    }
+
+    static void setHeroPhotos(List<String> names) {
+        StringBuilder sb = new StringBuilder();
+        for (String name : names) sb.append(sb.length() == 0 ? "" : ",").append(name);
+        put("heroPhotos", sb.toString());
+    }
+
     static boolean dateTime() { return sp().getBoolean("dateTime", true); }
     static void setDateTime(boolean on) { put("dateTime", on); }
 
@@ -222,8 +290,8 @@ final class Prefs {
     // MARK: - Top buttons
 
     /**
-     * The round buttons at the top right, in order: "live", "inputs" and/or "settings". null until the user edits
-     * them (then HomeApps.TOP_DEFAULT applies); empty when they took all three off.
+     * The round buttons at the top right, in order: "live", "inputs", "wifi" and/or "settings". null until the user edits
+     * them (then HomeApps.TOP_DEFAULT applies); empty when they took them all off.
      */
     static List<String> topButtons() {
         String v = sp().getString("topButtons", null);
@@ -240,6 +308,21 @@ final class Prefs {
     }
 
     // MARK: - Remote buttons
+
+    /** Names of the remote's app buttons, in KEYS order (Settings > Remote Buttons, and the phone app). */
+    static String[] keyLabels() {
+        if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
+        if (RemoteKeys.KTC) return new String[] {Ui.tr("Tabii button")};
+        if (RemoteKeys.XIAOMI_4A) return new String[] {Ui.tr("Mi button")};
+        if (RemoteKeys.XIAOMI) return new String[] {Ui.tr("Mi button"), Ui.tr("Okko button"), Ui.tr("VK button"),
+                Ui.tr("Rutube button"), Ui.tr("KION button"), Ui.tr("Wink button"), Ui.tr("IVI button")};
+        if (RemoteKeys.SONY) return new String[] {Ui.tr("BRAVIA CORE button"),
+                Ui.tr("Netflix button"), Ui.tr("Disney+ button"),
+                Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
+                Ui.tr("Crunchyroll button"), Ui.tr("Google Play button")};
+        return new String[] {Ui.tr("Netflix button"), Ui.tr("YouTube button"),
+                Ui.tr("Prime Video button"), Ui.tr("TCL Channel button")};
+    }
 
     private static String defaultApp(int keyCode) {
         switch (keyCode) {

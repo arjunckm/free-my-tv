@@ -163,8 +163,17 @@ final class Adb implements Closeable {
 
     /** Runs a command in the TV's shell and returns its output (stdout and stderr together). */
     String shell(String command) throws IOException {
+        return run("shell:", command);
+    }
+
+    /** Like shell, without a terminal: what the command leaves running in the background is not hung up on when it ends. */
+    String exec(String command) throws IOException {
+        return run("exec:", command);
+    }
+
+    private String run(String service, String command) throws IOException {
         int local = nextLocalId++;
-        send(OPEN, local, 0, ("shell:" + command + "\0").getBytes(StandardCharsets.UTF_8));
+        send(OPEN, local, 0, (service + command + "\0").getBytes(StandardCharsets.UTF_8));
         int remote = 0;
         ByteArrayOutputStream result = new ByteArrayOutputStream();
         while (true) {

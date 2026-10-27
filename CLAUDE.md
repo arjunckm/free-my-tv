@@ -266,6 +266,43 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).
 
+## The phone app (Free My TV Remote)
+
+`companion/` is an Android phone app (Java, no libraries, `companion/build.sh` → `FreeMyTV-Remote.apk`, same signing key) that
+controls a TV running Free My TV on the same Wi-Fi: the TV's apps (tap one to open it on the TV), a remote, the TV's
+settings, and Share → "Open on TV". It is the other half of `app/src/io/freemytv/Companion.java`.
+
+- **TV side:** `Companion` (a foreground service in `:home`) is a small HTTP server on port 8765, announced as
+  `_freemytv._tcp` (NSD). It lives in `:home` because `Prefs.version` (which the home screen watches) is per process.
+  Only local addresses are served. `/info` is open; everything else needs a pairing.
+- **Shared code:** `shared/io/freemytv/proto/Proto.java` is compiled into both apps (bump `VERSION` when the protocol changes).
+- **Pairing:** the TV shows an 8-digit code (a Toast); both sides agree a key with ECDH (P-256) and prove they know the code with
+  an HMAC under a key stretched from it (PBKDF2, 100k rounds), so the code and the token never travel; the token is derived
+  from it. It is not a PAKE: someone actively in the middle could test codes offline, hence the long, slow, two-minute code.
+  Limits: a new code at most every 5 s, 5 tries per code, a pause (5 min, doubling) after 8 wrong codes from one address (24 in
+  all), 8 phones at most; another address can't replace or spend a pairing in progress. Bodies are size-checked and the caller's
+  id looked up before they are read; replay floors are stored on every newer timestamp (`last-<id>`).
+- **Requests** are signed (HMAC over method, path, timestamp, body; the timestamp must be new for that phone, so nothing
+  can be replayed) and the TV signs its replies (`X-Sig`), which the phone checks. Never log the token.
+- **Settings from the phone** go through `Prefs.importAll`, which checks every value (a wrong type would throw in the home
+  screen); keep `Prefs.validValue` in step when you add a setting.
+- **Key presses:** `input keyevent` takes 1 to 2 s on a small TV, so `Companion` starts `KeyServer` once (as `app_process`
+  from the APK, as the shell user, through `Adb.exec` and `setsid`: the plain `shell:` service kills what it leaves
+  running) and sends keys to it over 127.0.0.1 with a secret token. It leaves after 10 idle minutes and is started again
+  by the next key (that one goes the slow way). Apps and links open through `am start` over the TV's ADB (Android 10+ stops a
+  background service from opening screens).
+- **The phone keeps its own copy** of the TV's apps, settings and icons (`Cache`); only the refresh button (`Sync`) asks the
+  TV for them. Changes made on the phone go to the TV in the background and wait ("pending") if it can't be reached.
+- **Several TVs:** `Tv` keeps the list of paired TVs (`Tv.Entry`: address, key, token, an optional name the person gave it) and
+  which one is in use; its static fields (`host`, `token`...) are always the one in use. `Cache` keeps a copy per TV (named by the
+  entry's key). A job that can outlast a switch (`Sync`, a command, the share chooser) takes a `Tv.Session` first, so it keeps
+  talking to the TV it was asked about. Pairing builds an entry without touching the one in use (`Tv.Pairing`, `Tv.add`).
+  The first version's single TV is moved into the list on the first start (`Tv.load`).
+- **A phone and a TV on different bands of one router (2.4 and 5 GHz) often can't see each other** ("No route to host"):
+  put them on the same band, or turn off the router's AP/client isolation.
+- Test with the phone's `adb`, not just by building: `adb -s <phone> shell input tap` and `logcat` on the TV (`FreeMyTV:
+  companion …` logs every request with its time).
+
 ## Always
 
 - Google TV's setup app (`setupwraith`) goes off before the stock home screen and comes back after it, everywhere

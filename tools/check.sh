@@ -17,6 +17,7 @@ esac
 
 if [ "$what" = all ] || [ "$what" = android ]; then
   ./build.sh
+  ./companion/build.sh   # the phone app (Free My TV Remote)
 fi
 
 if [ "$what" = all ] || [ "$what" = web ]; then

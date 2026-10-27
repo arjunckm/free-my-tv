@@ -93,8 +93,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
     // The tab bar is a 68 px capsule; the cards sit on the 5-column grid (the wide one spans 3).
-    /** The hero: one card 80% of the screen wide, the next one behind it (HERO_PEEK of its size, its edge showing on the right). */
-    private static final float L_HERO_T = 250, L_HERO_W = 1536, L_HERO_H = 540, HERO_PEEK = 0.9f, HERO_SLIDE_MS = 520, HERO_EVERY_MS = 5000;
+    /** The hero: one card 90% of the screen wide, in the middle; the one before it and the one after it (HERO_PEEK of its size) show at the two edges. */
+    private static final float L_HERO_T = 250, L_HERO_W = 1728, L_HERO_H = 540, HERO_PEEK = 0.9f, HERO_SLIDE_MS = 520, HERO_EVERY_MS = 5000;
     private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 158, L_TABBAR_H = 68, L_CARDS_TOP = 262, L_CARD_H = 442;
     private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
     private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
@@ -265,7 +265,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Shadows shadows = new Shadows();
     private final Paint imageFill = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint focusRing = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint veil = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -666,8 +666,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         halo.setMaskFilter(new BlurMaskFilter(22 * k, BlurMaskFilter.Blur.NORMAL));
         border.setStyle(Paint.Style.STROKE);
         border.setStrokeWidth(2 * k);
-        rim.setStyle(Paint.Style.STROKE);
-        rim.setStrokeWidth(2.5f * k);
+        focusRing.setStyle(Paint.Style.STROKE);
     }
 
     // MARK: - Frames: 60 per second while something moves; nothing is redrawn when still
@@ -1412,6 +1411,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else {
             if (it.tile != null) roundImage(c, it.tile, it.tileShader, cell, r);
         }
+        drawFocusRing(c, cell, r, fc);
+    }
+
+    /** The border around the focused tile: a white ring just outside it (a thin dark line under it, so it shows on a light background too). */
+    private void drawFocusRing(Canvas c, RectF cell, float r, float fc) {
+        if (fc <= 0.01f) return;
+        float w = 4 * k;
+        tmp.set(cell);
+        tmp.inset(-w / 2, -w / 2);
+        focusRing.setStrokeWidth(w + 2 * k);
+        focusRing.setColor(Ui.alpha(0xFF000000, 0.25f * fc));
+        c.drawRoundRect(tmp, r + w / 2, r + w / 2, focusRing);
+        focusRing.setStrokeWidth(w);
+        focusRing.setColor(Ui.alpha(0xFFFFFFFF, fc));
+        c.drawRoundRect(tmp, r + w / 2, r + w / 2, focusRing);
     }
 
     /**
@@ -1920,13 +1934,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         border.setColor(0x14FFFFFF);
         c.drawRoundRect(cell, r, r, border);
-        if (f > 0.01f) {
-            rim.setShader(null);
-            rim.setColor(Ui.alpha(0xFFFFFFFF, 0.4f * fc));
-            rim.setStrokeWidth(1.5f * k);
-            c.drawRoundRect(cell, r, r, rim);
-            rim.setStrokeWidth(2.5f * k);
-        }
+        drawFocusRing(c, cell, r, fc);
     }
 
     // MARK: - Toasts
@@ -2787,7 +2795,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, left = MARGIN * k, tall = L_TALL_W * k;
         float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g;
-        cardRects[0].set(left, L_HERO_T * k, left + L_HERO_W * k, (L_HERO_T + L_HERO_H) * k);   // the hero; the others stay empty
+        float heroLeft = (MARGIN + CONTENT_R - L_HERO_W) / 2 * k;   // in the middle of the screen
+        cardRects[0].set(heroLeft, L_HERO_T * k, heroLeft + L_HERO_W * k, (L_HERO_T + L_HERO_H) * k);   // the hero; the others stay empty
         cardRects[1].setEmpty();
         cardRects[2].setEmpty();
         for (RectF r : cardRects) snap(r);
@@ -2814,7 +2823,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 retarget(false);
             }
         }
-        for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
+        // All three tabs preloaded (switching tabs is instant) while they fit in memory; else this tab's cards only. Asking
+        // for more than the cache holds makes the images push each other out and get built again and again (flicker).
+        List<Recs.Pick> wanted = recs.wanted();
+        for (Recs.Pick p : wanted.size() <= recs.capacity() ? wanted : allCards) recs.backdrop(p);
         // Picks bring their own background; without them (no TMDB key), your photo if there is one.
         boolean own = !picksOn() && Photos.on(getContext());
         Backdrop b = own ? Photos.backdrop(getContext(), ownReady) : cards.isEmpty() ? null : recs.backdrop(cards.get(0));
@@ -2943,7 +2955,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return slideAt != 0;
     }
 
-    /** The hero: the title in front, 80% of the screen wide, and the next one behind it, its edge showing on the right. */
+    /**
+     * The hero: the title in front, 90% of the screen wide, in the middle; the one before it and the one after it behind, their
+     * edges showing on the left and the right. Sliding moves every card one place over (the one that leaves fades out at the far
+     * side, a new one comes in from the other).
+     */
     private void drawHeroCards(Canvas c) {
         int n = allCards.size();
         RectF main = cardRects[0];
@@ -2955,36 +2971,59 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawRoundRect(cell, 26 * k, 26 * k, fill);
             return;
         }
-        float pw = main.width() * HERO_PEEK, ph = main.height() * HERO_PEEK, right = CONTENT_R * k;
-        RectF peek = heroPeek, front = heroFront;
-        peek.set(right - pw, main.centerY() - ph / 2, right, main.centerY() + ph / 2);
+        if (n == 1) {
+            drawHeroCard(c, allCards.get(0), main, 0, 1, focus, true);
+            return;
+        }
+        float pw = main.width() * HERO_PEEK, ph = main.height() * HERO_PEEK, screen = (MARGIN + CONTENT_R) * k;
+        float cy = main.centerY();
+        // The places a card can be: the middle, the two edges, and just past them (where cards come in and go out).
+        heroSlots[2].set(main);
+        heroSlots[3].set(screen - pw, cy - ph / 2, screen, cy + ph / 2);
+        heroSlots[4].set(heroSlots[3]);
+        heroSlots[4].offset(pw * 0.45f, 0);
+        heroSlots[1].set(0, cy - ph / 2, pw, cy + ph / 2);
+        heroSlots[0].set(heroSlots[1]);
+        heroSlots[0].offset(-pw * 0.45f, 0);
         float t = slideAt == 0 ? 1 : Ui.clamp((SystemClock.uptimeMillis() - slideAt) / HERO_SLIDE_MS);
         float p = 1 - (1 - t) * (1 - t) * (1 - t);   // ease out
-        float away = 220 * k;
-        Recs.Pick now = allCards.get(cardFirst), next = allCards.get((cardFirst + 1) % n);
-        if (t >= 1) {
-            if (n > 1) drawHeroCard(c, next, peek, 0.4f, 1, 0, false);
-            drawHeroCard(c, now, main, 0, 1, focus, true);
-        } else if (slideDir > 0) {
-            // The one behind comes forward; the one in front slides out to the left and fades.
-            if (n > 2) drawHeroCard(c, next, peek, 0.4f, p, 0, false);
-            lerp(front, peek, main, p);
-            drawHeroCard(c, now, front, 0.4f * (1 - p), 1, 0, p > 0.6f);
-            front.set(main);
-            front.offset(-away * p, 0);
-            drawHeroCard(c, allCards.get(slidePrev), front, 0, 1 - p, 0, true);
-        } else {
-            // Back: the one in front steps behind, and the one before it slides in from the left.
-            if (n > 2) drawHeroCard(c, allCards.get((cardFirst + 2) % n), peek, 0.4f, 1 - p, 0, false);
-            lerp(front, main, peek, p);
-            drawHeroCard(c, next, front, 0.4f * p, 1, 0, p < 0.4f);
-            front.set(main);
-            front.offset(-away * (1 - p), 0);
-            drawHeroCard(c, now, front, 0, p, 0, true);
+        float shift = slideAt == 0 ? 0 : slideDir * (1 - p);   // a card is drawn that far from its place, going to it
+        // Back to front: the farthest from the middle first.
+        for (int i = 0; i < 5; i++) {
+            heroOrder[i] = i - 2;
+            heroAt[i] = Math.abs(i - 2 + shift);
+        }
+        for (int i = 1; i < 5; i++) {   // insertion sort, by distance, farthest first (5 items, nothing allocated)
+            int slot = heroOrder[i];
+            float far = heroAt[i];
+            int j = i - 1;
+            while (j >= 0 && heroAt[j] < far) {
+                heroAt[j + 1] = heroAt[j];
+                heroOrder[j + 1] = heroOrder[j];
+                j--;
+            }
+            heroAt[j + 1] = far;
+            heroOrder[j + 1] = slot;
+        }
+        for (int i = 0; i < 5; i++) {
+            int slot = heroOrder[i];
+            float v = slot + shift;                 // where it is now, in places from the middle (-2 to 2, fractions while sliding)
+            float away = Math.abs(v);
+            float alpha = away <= 1 ? 1 : Ui.clamp(2 - away);   // past the edge it fades
+            if (alpha <= 0.01f) continue;
+            int lo = (int) Math.floor(v);
+            lerp(heroFront, heroSlots[lo + 2], heroSlots[Math.min(4, lo + 3)], v - lo);
+            Recs.Pick pick = allCards.get(((cardFirst + slot) % n + n) % n);
+            boolean front = away < 0.5f;
+            drawHeroCard(c, pick, heroFront, 0.4f * Math.min(1, away), alpha, slideAt == 0 && slot == 0 ? focus : 0, front);
         }
     }
 
-    private final RectF heroPeek = new RectF(), heroFront = new RectF();
+    private final RectF[] heroSlots = {new RectF(), new RectF(), new RectF(), new RectF(), new RectF()};
+    private final int[] heroOrder = new int[5];
+    private final float[] heroAt = new float[5];
+    private final RectF heroFront = new RectF();
+
 
     private static void lerp(RectF out, RectF a, RectF b, float t) {
         out.set(a.left + (b.left - a.left) * t, a.top + (b.top - a.top) * t,
@@ -3016,7 +3055,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
             c.drawRoundRect(cell, r, r, fill);
         }
-        if (text && p != null) {
+        if (text && p != null && p.title != null && !p.title.isEmpty()) {   // a photo has no title: no scrim over it
             // A scrim over the lower part, for the title.
             float sh = cell.height() * 0.55f;
             if (heroScrim == null || heroScrimH != cell.height()) {

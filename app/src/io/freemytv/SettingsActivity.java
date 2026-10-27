@@ -466,7 +466,8 @@ public class SettingsActivity extends Activity {
             String line;
             String error = recs.optString("error");
             int count = recs.optInt("count");
-            if (!hasKey) line = Ui.tr("No TMDB key: see the README (config.properties).");
+            if (!Prefs.hero()) line = Ui.tr("Off");   // the hero is off: nothing is asked of TMDB
+            else if (!hasKey) line = Ui.tr("No TMDB key: see the README (config.properties).");
             else if (error.equals(Recs.NO_KNOWN_APPS)) line = Ui.tr("None of the TV's streaming apps can give picks.");
             else if (error.equals(Recs.NO_APPS)) line = Ui.trf("TMDB has none of the TV's apps for tmdb_region={region}.", "region", Recs.REGION);
             else if (!error.isEmpty()) line = Ui.trf("Error: {error}.", "error", error);
@@ -661,7 +662,7 @@ public class SettingsActivity extends Activity {
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, quotes, date and time, hero cards, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, DATE_TIME_ROW = 8, HERO_CARDS_ROW = 9, COIN_ROWS = 10;
+        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, DATE_TIME_ROW = 8, HERO_ROW = 9, HERO_CARDS_ROW = 10, COIN_ROWS = 11;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -680,6 +681,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("City"));
             l.add(Ui.tr("Quotes widget"));
             l.add(Ui.tr("Date and time"));
+            l.add(Ui.tr("Hero section"));
             l.add(Ui.tr("Hero cards"));
             l.add("Bitcoin");
             l.add("Ethereum");
@@ -705,6 +707,7 @@ public class SettingsActivity extends Activity {
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[7] = onOff(Prefs.quotes());
             v[DATE_TIME_ROW] = onOff(Prefs.dateTime());
+            v[HERO_ROW] = onOff(Prefs.hero());
             v[HERO_CARDS_ROW] = String.valueOf(Prefs.heroCards());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
@@ -725,17 +728,7 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] keyLabels() {
-            if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
-            if (RemoteKeys.KTC) return new String[] {Ui.tr("Tabii button")};
-            if (RemoteKeys.XIAOMI_4A) return new String[] {Ui.tr("Mi button")};
-            if (RemoteKeys.XIAOMI) return new String[] {Ui.tr("Mi button"), Ui.tr("Okko button"), Ui.tr("VK button"),
-                    Ui.tr("Rutube button"), Ui.tr("KION button"), Ui.tr("Wink button"), Ui.tr("IVI button")};
-            if (RemoteKeys.SONY) return new String[] {Ui.tr("BRAVIA CORE button"),
-                    Ui.tr("Netflix button"), Ui.tr("Disney+ button"),
-                    Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
-                    Ui.tr("Crunchyroll button"), Ui.tr("Google Play button")};
-            return new String[] {Ui.tr("Netflix button"), Ui.tr("YouTube button"),
-                    Ui.tr("Prime Video button"), Ui.tr("TCL Channel button")};
+            return Prefs.keyLabels();
         }
 
         private String[] keyValues() {
@@ -801,6 +794,7 @@ public class SettingsActivity extends Activity {
                 case CITY_ROW: return;
                 case 7: Prefs.setQuotes(!Prefs.quotes()); break;
                 case DATE_TIME_ROW: Prefs.setDateTime(!Prefs.dateTime()); break;
+                case HERO_ROW: Prefs.setHero(!Prefs.hero()); break;   // off: no TMDB, and three of your photos take its place
                 case HERO_CARDS_ROW: {
                     int n = Prefs.heroCards() + dir;
                     Prefs.setHeroCards(n > 8 ? 3 : n < 3 ? 8 : n);   // 3 to 8, around

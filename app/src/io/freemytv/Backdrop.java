@@ -26,8 +26,8 @@ final class Backdrop {
     /** The UI's size against 1920×1080 (at most 1): nothing is built bigger than the screen can show. */
     private static final float UI_SCALE = uiScale();
     static final int W = ui(1920), H = ui(1080), FW = 192, FH = 108, GW = 480, GH = 270;
-    /** The hero card at its focused size (1.02×: 1536×540 at rest, 80% of the screen wide); the next one behind it is the same image, smaller. */
-    static final int WIDE_W = ui(1567), WIDE_H = ui(551);
+    /** The hero card at its focused size (1.02×: 1728×540 at rest, 90% of the screen wide); the next one behind it is the same image, smaller. */
+    static final int WIDE_W = ui(1763), WIDE_H = ui(551);
 
     private static float uiScale() {
         android.util.DisplayMetrics m = android.content.res.Resources.getSystem().getDisplayMetrics();
@@ -94,7 +94,7 @@ final class Backdrop {
         Canvas c = new Canvas(out);
         if (forLight) {
             // Light design: everything comes from the photo without scrims.
-            Bitmap wide = card(out, WIDE_W, WIDE_H), tall = null;
+            Bitmap wide = cardTop(out, WIDE_W, WIDE_H), tall = null;
             int[] frost = reduce(out, FW, FH, 3, 3);
             int[] light = whiten(frost.clone(), 0.82f);
             int[] glass = reduce(out, GW, GH, 2, 2);
@@ -102,10 +102,14 @@ final class Backdrop {
             int[] night = darken(frost.clone(), 0.76f);
             int[] nightGlass = darken(glass, 0.56f);
             if (own) {
-                int[] sharp = reduce(out, GW, GH, 1, 1);
-                int[] lightBg = ramp(sharp.clone(), 0.82f, 0.45f, true), nightBg = ramp(sharp, 0.76f, 0.5f, false);
+                // Your photo as the background: at the screen's own size (up to 1280 x 720), not blurred and not blown up from a
+                // thumbnail. Behind the clock it is whitened (darkened at night) so the text reads; across most of the screen it
+                // is only a little toned, so it is clearly your photo.
+                int bw = Math.min(W, 1280), bh = Math.min(H, 720);
+                int[] sharp = reduce(out, bw, bh, 0, 0);
+                int[] lightBg = ramp(sharp.clone(), 0.78f, 0.2f, true, bw, bh), nightBg = ramp(sharp, 0.64f, 0.2f, false, bw, bh);
                 out.recycle();
-                return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass, lightBg, nightBg, GW, GH);
+                return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass, lightBg, nightBg, bw, bh);
             }
             out.recycle();
             return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
@@ -190,6 +194,24 @@ final class Backdrop {
         return out == full ? gpu(full.copy(Bitmap.Config.ARGB_8888, false)) : gpu(out);
     }
 
+    /**
+     * The hero card: like card, but a photo that is taller than the card loses its bottom, never its top (heads, faces and the
+     * top of the scene stay; the title goes over the bottom anyway).
+     */
+    private static Bitmap cardTop(Bitmap full, int w, int h) {
+        Bitmap b = top(full, (float) w / h);
+        Bitmap out = Ui.downscale(b, w, h);
+        if (b != full && b != out) b.recycle();
+        return out == full ? gpu(full.copy(Bitmap.Config.ARGB_8888, false)) : gpu(out);
+    }
+
+    /** The top of the image at that aspect ratio, as wide as the image (the image itself when it already has it). */
+    private static Bitmap top(Bitmap b, float ratio) {
+        int cw = Math.min(b.getWidth(), Math.round(b.getHeight() * ratio));
+        int ch = Math.min(b.getHeight(), Math.round(cw / ratio));
+        return Bitmap.createBitmap(b, (b.getWidth() - cw) / 2, 0, cw, ch);
+    }
+
     /** The center of the image at that aspect ratio (the image itself when it already has it). */
     private static Bitmap center(Bitmap b, float ratio) {
         int cw = Math.min(b.getWidth(), Math.round(b.getHeight() * ratio));
@@ -218,15 +240,15 @@ final class Backdrop {
         return px;
     }
 
-    /** Whitens (or darkens) by `left` up to 45% of the width, easing to `right` by 70% (a GW × GH image). */
-    private static int[] ramp(int[] px, float left, float right, boolean light) {
-        int[] col = new int[GH];
-        for (int x = 0; x < GW; x++) {
-            float t = Math.max(0, Math.min(1, (x / (float) GW - 0.45f) / 0.25f));
+    /** Whitens (or darkens) by `left` up to 45% of the width, easing to `right` by 70% (a w × h image). */
+    private static int[] ramp(int[] px, float left, float right, boolean light, int w, int h) {
+        int[] col = new int[h];
+        for (int x = 0; x < w; x++) {
+            float t = Math.max(0, Math.min(1, (x / (float) w - 0.45f) / 0.25f));
             float a = left + (right - left) * t * t * (3 - 2 * t);
-            for (int y = 0; y < GH; y++) col[y] = px[y * GW + x];
+            for (int y = 0; y < h; y++) col[y] = px[y * w + x];
             if (light) whiten(col, a); else darken(col, a);
-            for (int y = 0; y < GH; y++) px[y * GW + x] = col[y];
+            for (int y = 0; y < h; y++) px[y * w + x] = col[y];
         }
         return px;
     }

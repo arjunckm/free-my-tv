@@ -124,7 +124,8 @@ final class Recs {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
-    private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
+    // This hour's, built and ready to draw. Least recently used goes first (the ones on screen are asked for on every frame, so they stay).
+    private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);
     private final java.util.Set<String> pending = new java.util.HashSet<>();
     private volatile List<Pick> picks = new ArrayList<>();
     private volatile int period = -1;
@@ -154,7 +155,7 @@ final class Recs {
     void removeListener(Listener l) { listeners.remove(l); }
 
     static boolean hasKey(Context c) {
-        return !Config.TMDB_KEY.trim().isEmpty();
+        return !Config.TMDB_KEY.trim().isEmpty() && Prefs.hero();   // hero off: TMDB is never asked (the picks, their details, their images)
     }
 
     /** Last fetch, for the settings screen: {count, error, at}. Written by the home screen (another process). */
@@ -228,6 +229,18 @@ final class Recs {
     /** Name of the service the pick is on ("Netflix"), or empty. */
     static String serviceName(Pick p) {
         return p == null || p.app == null ? "" : SERVICE_NAME.get(p.app);
+    }
+
+    /**
+     * How many backdrops stay in memory (about 2.7 MB each at 720p: a 1 GB TV can't hold the 24 of three tabs of 8 titles). The hero's
+     * cards (Prefs.heroCards) and a few more always fit: asking for more than fits only makes them push each other out, over and over.
+     */
+    int capacity() {
+        return capacity(light);
+    }
+
+    private static int capacity(boolean forLight) {
+        return forLight ? Math.max(10, Prefs.heroCards() + 3) : 4;
     }
 
     /** The pick's ready backdrop (or null: builds it in the background and notifies when it's ready). */
@@ -786,7 +799,7 @@ final class Recs {
             if (forLight != light) return;   // the design changed midway: this one is stale
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > capacity(forLight)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {

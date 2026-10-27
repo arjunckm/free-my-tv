@@ -115,6 +115,36 @@ final class Photos {
         return out;
     }
 
+    /**
+     * The wallpapers while the hero is off (Prefs.heroPhotos, up to 3; the first 3 until some are chosen): they take turns as the
+     * home screen's full-screen background. Empty when My Photos is off or none was sent.
+     */
+    static List<File> wallpapers(Context c) {
+        List<File> chosen = new ArrayList<>();
+        if (!on(c)) return chosen;
+        List<File> all = files(c);
+        for (String name : Prefs.heroPhotos()) for (File f : all) if (f.getName().equals(name)) chosen.add(f);
+        if (chosen.isEmpty()) for (int i = 0; i < Math.min(3, all.size()); i++) chosen.add(all.get(i));
+        return chosen;
+    }
+
+    /**
+     * Removes the photos with these file names (only imported ones: the names come from the phone). A wallpaper that was one of
+     * them is dropped from the choice. Returns how many went.
+     */
+    static synchronized int delete(Context c, List<String> names) {
+        int removed = 0;
+        for (File f : files(c)) if (names.contains(f.getName()) && f.delete()) removed++;
+        listedStamp = -1;   // list the folder again
+        List<String> chosen = Prefs.heroPhotos(), keep = new ArrayList<>();
+        for (String name : chosen) if (!names.contains(name)) keep.add(name);
+        if (keep.size() != chosen.size()) Prefs.setHeroPhotos(keep);
+        kept.clear();   // a wallpaper built from a photo that is gone
+        backdrop = null;
+        built = null;
+        return removed;
+    }
+
     // MARK: - The home screen's background
 
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -122,19 +152,34 @@ final class Photos {
     private static File built, building;
     private static Backdrop backdrop;
 
+    /** How long each wallpaper stays while the hero is off (the home screen asks again every 15 s). */
+    private static final long WALLPAPER_MS = 15_000;
+    /** The last 3 built, so a wallpaper that comes round again is not built again. */
+    private static final java.util.Map<File, Backdrop> kept = new java.util.LinkedHashMap<>(4, 0.75f, true);
+
     /**
-     * This hour's photo, ready to draw as the home screen's background, or null (off, or the first one still being
-     * built). When the hour changes, the previous one stays until the new one is ready; then `ready` runs.
+     * The photo to draw as the home screen's full-screen background, or null (off, or the first one still being built): this
+     * hour's of all of them without picks (no TMDB key); with the hero off, the next of the 3 wallpapers every WALLPAPER_MS.
+     * The previous one stays until the new one is ready; then `ready` runs.
      */
     static synchronized Backdrop backdrop(Context c, Runnable ready) {
-        if (!on(c)) {
+        boolean wallpapers = !Prefs.hero();
+        List<File> list = !on(c) ? new ArrayList<File>() : wallpapers ? wallpapers(c) : files(c);
+        if (list.isEmpty()) {
             backdrop = null;
             built = null;
+            kept.clear();
             return null;
         }
-        List<File> list = files(c);
-        File want = list.get((int) ((System.currentTimeMillis() / 3_600_000L) % list.size()));
-        if (!want.equals(built) && !want.equals(building)) {
+        long every = wallpapers ? WALLPAPER_MS : 3_600_000L;
+        File want = list.get((int) ((System.currentTimeMillis() / every) % list.size()));
+        Backdrop have = kept.get(want);
+        if (have != null) {
+            backdrop = have;
+            built = want;
+            return have;
+        }
+        if (!want.equals(building)) {
             building = want;
             worker.execute(() -> {
                 Backdrop b = null;
@@ -147,6 +192,8 @@ final class Photos {
                 synchronized (Photos.class) {
                     building = null;
                     if (b == null) return;
+                    kept.put(want, b);
+                    while (kept.size() > 3) kept.remove(kept.keySet().iterator().next());
                     backdrop = b;
                     built = want;
                 }
