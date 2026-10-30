@@ -142,6 +142,9 @@ public class SettingsActivity extends Activity {
         private final SettingsActivity activity;
         private final Scene scene = new Scene();
         private final Handler handler = new Handler(Looper.getMainLooper());
+        private org.json.JSONObject updates = new org.json.JSONObject();   // Updates' file (the main process writes it), read in poll
+        private long checkAskedAt, installAskedAt;       // OK on Updates, on the wall clock as the file's "at"
+        private String installed = "";                   // this app's version (an update starts a new process)
         private final Spring[] pop = new Spring[12];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
@@ -175,6 +178,7 @@ public class SettingsActivity extends Activity {
                 state = HomeMode.state(getContext());
                 hasKey = Recs.hasKey(getContext());
                 recs = Recs.status(getContext());
+                updates = Updates.state(getContext());
                 boolean nowBusy = !busyText().isEmpty();
                 if (nowBusy) pendingAt = 0;
                 // A switch just ended: TalkBack reads how it went (the newest notice).
@@ -185,12 +189,13 @@ public class SettingsActivity extends Activity {
                 }
                 wasBusy = nowBusy;
                 invalidate();
-                handler.postDelayed(this, busy() ? 500 : 2000);
+                handler.postDelayed(this, busy() || updating() ? 500 : 2000);
             }
         };
 
         SettingsView(SettingsActivity a) {
             super(a);
+            installed = Updates.installedVersion(a);
             activity = a;
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
             HomeData.Weather wx = HomeData.get(a).weather;
@@ -687,7 +692,18 @@ public class SettingsActivity extends Activity {
             l.add("Ethereum");
             l.add("Solana");
             if (dollar()) l.add(Ui.tr("Dollar"));
+            l.add(Ui.tr("Updates"));
+            if (Trakt.available()) l.add("Trakt");
             return l.toArray(new String[0]);
+        }
+
+        /** The Updates row follows the coins; Trakt's (only with a Trakt API app in config.properties) is the last. */
+        private int updatesRow() {
+            return COIN_ROWS + (dollar() ? 4 : 3);
+        }
+
+        private int traktRow() {
+            return Trakt.available() ? updatesRow() + 1 : -1;
         }
 
         private String[] settingValues() {
@@ -710,7 +726,9 @@ public class SettingsActivity extends Activity {
             v[HERO_ROW] = onOff(Prefs.hero());
             v[HERO_CARDS_ROW] = String.valueOf(Prefs.heroCards());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            for (int i = COIN_ROWS; i < updatesRow(); i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            v[updatesRow()] = updatesValue();
+            if (traktRow() >= 0) v[traktRow()] = traktValue();
             return v;
         }
 
@@ -801,11 +819,78 @@ public class SettingsActivity extends Activity {
                     break;
                 }
                 default:
-                    if (!Prefs.quotes()) return;
+                    if (row >= updatesRow() || !Prefs.quotes()) return;   // Updates and Trakt act on OK only
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));
                     break;
             }
             HomeData.get(getContext()).settingsChanged();
+        }
+
+        // MARK: - Updates (this repository's releases)
+
+        /** OK on Updates: installs one that's ready, else checks now (both run as jobs in the main process). */
+        private void updateNow() {
+            Context c = getContext();
+            updates = Updates.state(c);
+            long now = System.currentTimeMillis();
+            if (Updates.ready(updates, installed)) {
+                if (now - installAskedAt < 5000) return;   // Android's installer is on its way
+                installAskedAt = now;
+                ModeJob.schedule(c, ModeJob.INSTALL, "", 0);
+            } else {
+                if (Updates.busy(updates) || checkAsked()) return;
+                checkAskedAt = now;
+                ModeJob.schedule(c, ModeJob.UPDATE, "", 0);
+            }
+            handler.removeCallbacks(poll);
+            handler.postDelayed(poll, 500);
+            invalidate();
+            spoken.focusMoved();
+        }
+
+        /** OK asked for a check that hasn't started yet (the job writes "checking" as it starts). */
+        private boolean checkAsked() {
+            long now = System.currentTimeMillis();
+            return now - checkAskedAt < 10_000 && updates.optLong("at") < checkAskedAt;
+        }
+
+        private String updatesValue() {
+            return checkAsked() ? Ui.tr("Checking…") : Updates.summary(updates, installed);
+        }
+
+        /** A check or an install on its way or under way: poll reads the file more often. */
+        private boolean updating() {
+            return Updates.busy(updates) || System.currentTimeMillis() - Math.max(checkAskedAt, installAskedAt) < 10_000;
+        }
+
+        // MARK: - Trakt
+
+        private String traktValue() {
+            Context c = getContext();
+            String code = Trakt.code();
+            if (code != null) return Ui.trf("{url}, code {code}", "url", Trakt.url(), "code", code);
+            if (Trakt.busy()) return Ui.tr("Connecting…");
+            if (Trakt.signedIn(c)) return Trakt.user(c).isEmpty() ? Ui.tr("Signed in") : Trakt.user(c);
+            return Trakt.message().isEmpty() ? Ui.tr("Sign in") : Trakt.message();
+        }
+
+        /** OK on the Trakt row: shows a code to sign in with, or asks before signing out. */
+        private void traktOk() {
+            Context c = getContext();
+            if (!Trakt.signedIn(c)) {
+                Trakt.signIn(c, () -> handler.post(() -> {
+                    invalidate();
+                    spoken.focusMoved();
+                }));
+                return;
+            }
+            String user = Trakt.user(c).isEmpty() ? "Trakt" : Trakt.user(c);
+            new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("Trakt")
+                    .setMessage(Ui.trf("Sign out of {name}? The picks go back to TMDB's alone.", "name", user))
+                    .setPositiveButton(Ui.tr("Sign out"), (d, which) -> { Trakt.signOut(c); invalidate(); })
+                    .setNegativeButton(Ui.tr("Cancel"), null)
+                    .show();
         }
 
         private void askCity() {
@@ -1044,7 +1129,7 @@ public class SettingsActivity extends Activity {
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
-                boolean locked = !keys && from + i >= COIN_ROWS && !Prefs.quotes();
+                boolean locked = !keys && from + i >= COIN_ROWS && from + i < updatesRow() && !Prefs.quotes();
                 rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x591C1C1E : 0xB31C1C1E, f));
                 if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
@@ -1111,6 +1196,12 @@ public class SettingsActivity extends Activity {
                 return;
             } else if (screen == HOME_SETTINGS && pickScroll + focus == PHOTOS_ROW) {
                 askRemovePhotos();
+                return;
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == updatesRow()) {
+                updateNow();
+                return;
+            } else if (screen == HOME_SETTINGS && traktRow() >= 0 && pickScroll + focus == traktRow()) {
+                traktOk();
                 return;
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);

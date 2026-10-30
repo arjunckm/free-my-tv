@@ -25,3 +25,17 @@ Keep `freemytv.keystore` safe and out of git: every update must be signed with i
 git remote add upstream https://github.com/simbasjungles/free-my-tv   # once
 git fetch upstream && git merge upstream/main
 ```
+
+## Merged from upstream (adopt-upstream-safe)
+
+Upstream main (to v1.3.0) merged without touching this fork's screens: `HomeView`, `Backdrop`, `SettingsActivity` and the website (`docs/`) stay as they were here.
+
+| Taken from upstream | Notes |
+|---|---|
+| Switch safety, device and remote fixes (Google TV Streamer, JVC/Skyworth, Hisense, Sony Live TV, HY300/HY320, Hikeen…) | `HomeMode`, `ModeJob`, `RemoteKeys`, `Capabilities`, `Place`, `SkyworthRemote` |
+| Picks: Stremio "Open in", Netflix/Watchmode title links, new regions, picks keep their top order | `Recs`; this fork's SonyLIV, ZEE5, `prefer_languages` and hero card count kept |
+| Trakt (needs `trakt_client_id`), Immich photos (`immich_server`, key via `tools/send_key.py`) | a "Trakt" row and an "Updates" row are added at the end of Home Settings |
+| Updates from GitHub releases | points at **arjunckm/free-my-tv**, not upstream |
+| Windows-friendly `build.sh`, `tools/`, LG (`webos/`) and Samsung (`tizen/`, `web/`) apps | |
+
+Not taken (they change the home screen): Recent Apps, status icons, sleep timer, Continue Watching, Now Playing, Quick Settings, the TMDB-key QR page, mouse hover/click in `HomeView`. Their classes are in the tree but no screen reaches them.

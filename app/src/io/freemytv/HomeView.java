@@ -446,7 +446,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         idle = false;
         Choreographer.getInstance().postFrameCallback(this);
         spoken.readAgain();
+        if (allAppsOnResume) {
+            allAppsOnResume = false;
+            showAllApps();
+        }
     }
+
+    /** A remote's All Apps button (RemoteKeys): the sheet opens now, or as soon as the home screen is back. */
+    void showAllApps() {
+        if (!running) {
+            allAppsOnResume = true;
+            return;
+        }
+        reset(false);
+        openSheet();
+    }
+
+    private boolean allAppsOnResume;
 
     void pause() {
         if (!running) return;

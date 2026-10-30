@@ -15,6 +15,8 @@ import android.os.Build;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -38,8 +40,25 @@ import java.util.function.Supplier;
 final class Ui {
     private Ui() {}
 
-    /** Android 8 to 11: older TVs and boxes, whose GPUs need the cheaper drawing paths (Shadows, rounded images). */
-    static final boolean LEGACY = Build.VERSION.SDK_INT < 31;
+    /**
+     * Android 8 to 11, and Android 12 and 12L short on memory: their GPUs need the cheaper drawing paths (Shadows,
+     * rounded images) and can't afford the off-screen layers (a 2 GB TCL on Android 12 spent 156 MB of GPU memory on
+     * them, without the AGSL shaders that only arrive on 13). From 13 the layers also cache the shaders' glass, so
+     * they stay until a small-memory TV there is measured.
+     */
+    static final boolean LEGACY = Build.VERSION.SDK_INT < 31 || (Build.VERSION.SDK_INT < 33 && smallMemory());
+
+    /** Under 3 GB of RAM, read from /proc: LEGACY is read before Ui.init, so there is no Context yet. */
+    private static boolean smallMemory() {
+        try (BufferedReader r = new BufferedReader(new FileReader("/proc/meminfo"))) {
+            String line = r.readLine();                         // "MemTotal:        1957140 kB"
+            if (line != null && line.startsWith("MemTotal:")) {
+                return Long.parseLong(line.replaceAll("\\D+", "")) < 3L * 1024 * 1024;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     /**
      * The language in use: "en" or one with a catalogue in assets/i18n (pt, es, de, fr, zh-CN…), picked in the settings
      * or, with "auto", the TV's own (English when there is no catalogue for it).
@@ -203,6 +222,9 @@ final class Ui {
 
     /** The language's own name, capitalized: "Português", "Deutsch", "Français", "日本語". */
     static String languageName(String code) {
+        // Both Chinese catalogues are "中文" to Java: the script tells them apart.
+        if (code.equalsIgnoreCase("zh-CN")) return "简体中文";
+        if (code.equalsIgnoreCase("zh-TW")) return "繁體中文";
         Locale l = Locale.forLanguageTag(code);
         String name = l.getDisplayLanguage(l);
         if (name.isEmpty()) return code;
@@ -211,7 +233,12 @@ final class Ui {
 
     /** After the language changes in the settings (and once Prefs can read them). */
     static synchronized void applyLanguage() {
-        String lang = resolve(Prefs.language());
+        applyLanguage(Prefs.language());
+    }
+
+    /** The same for a setting ("auto", "fr"…) given by the caller (SleepOverlay gets it in its Intent). */
+    static synchronized void applyLanguage(String setting) {
+        String lang = resolve(setting);
         Map<String, String> cat = Collections.emptyMap();
         if (!lang.equals("en")) {
             cat = load(lang);
@@ -225,6 +252,7 @@ final class Ui {
         plurals = PluralRules.forLocale(locale);
         language = lang;
         DATE_PATTERNS.clear();
+        TIME_PATTERNS.clear();
         generation++;
     }
 
@@ -236,9 +264,13 @@ final class Ui {
         }
         Locale tv = Locale.getDefault();
         String lang = base(tv.getLanguage());
-        // Simplified Chinese only where it is the written form (not Taiwan, Hong Kong or Macau).
-        if (lang.equals("zh") && ("Hant".equals(tv.getScript()) || "TW".equals(tv.getCountry())
-                || "HK".equals(tv.getCountry()) || "MO".equals(tv.getCountry()))) return "en";
+        // Taiwan, Hong Kong and Macau write Traditional Chinese: never the Simplified catalogue there (unless the TV
+        // itself is set to Simplified, zh-Hans-HK).
+        if (lang.equals("zh") && !"Hans".equals(tv.getScript()) && ("Hant".equals(tv.getScript()) || "TW".equals(tv.getCountry())
+                || "HK".equals(tv.getCountry()) || "MO".equals(tv.getCountry()))) {
+            for (String code : languages()) if (code.equalsIgnoreCase("zh-TW")) return code;
+            return "en";
+        }
         String code = match(lang);
         return code != null ? code : "en";
     }
@@ -433,14 +465,60 @@ final class Ui {
         }
     }
 
-    /** "21:47" (in English, "9:47", like the iPhone in the US). */
-    static String clock(long now) {
-        return Ui.datePattern("format|h:mm").format(now);
+    /** The clock's patterns, by ICU skeleton ("Hm", "hmma", "H", "ha"): each language keeps its own order. */
+    private static final Map<String, DatePattern> TIME_PATTERNS = new HashMap<>();
+
+    /**
+     * The locale's own pattern for a time skeleton, made once: "hmma" is "h:mm a" in English, "a h:mm" in Chinese and
+     * Japanese, "h:mm a" in French (the "a" keeps the AM/PM the person asked for).
+     */
+    static synchronized DatePattern timePattern(String skeleton) {
+        DatePattern pattern = TIME_PATTERNS.get(skeleton);
+        if (pattern == null) {
+            String text = android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton);
+            try {
+                new SimpleDateFormat(text, locale);
+            } catch (IllegalArgumentException e) {
+                AppLog.w("time pattern " + skeleton + " in " + language + ": " + e.getMessage());
+                text = skeleton.equals("Hm") ? "HH:mm" : skeleton.equals("H") ? "HH" : skeleton.equals("ha") ? "h a" : "h:mm a";
+            }
+            pattern = new DatePattern(text, locale);
+            TIME_PATTERNS.put(skeleton, pattern);
+        }
+        return pattern;
     }
 
-    /** "5:21" (sunrise and sunset; in English, "5:21 AM"). */
+    /** 24-hour: "24" or "12" as chosen in the settings, or the TV's own setting for "auto". */
+    static boolean h24() {
+        String format = Prefs.clockFormat();
+        return format.equals("24") || (format.equals("auto") && Prefs.clock24());
+    }
+
+    /**
+     * The catalogue's pattern for a clock key when it already writes the chosen clock (24-hour without "a", or 12-hour),
+     * so each language keeps its own form ("20h", "20 Uhr", "오후 8시"); else the locale's pattern for the other one.
+     * Automatic keeps each language's own clock, as before the Clock row: only English follows the TV's setting (#250).
+     */
+    private static DatePattern clockPattern(String key, String skeleton24, String skeleton12) {
+        if (Prefs.clockFormat().equals("auto") && !language.equals("en")) return datePattern(key);
+        boolean h24 = h24();
+        boolean catalogue24 = tr(key).replaceAll("'[^']*'", "").matches(".*[Hk].*");
+        return catalogue24 == h24 ? datePattern(key) : timePattern(h24 ? skeleton24 : skeleton12);
+    }
+
+    /** "21:47" (Portuguese), "9:47" (English in 12 hours) or "9:47 PM", as chosen in the settings. */
+    static String clock(long now) {
+        return clockPattern("format|h:mm", "Hm", "hmma").format(now);
+    }
+
+    /** "5:21 PM" (sunrise and sunset), following the clock's 12/24-hour choice. */
     static String time(long at) {
-        return once("time", at, () -> Ui.datePattern("format|h:mm a").format(at));
+        return once(h24() ? "time24" : "time", at, () -> clockPattern("format|h:mm a", "Hm", "hmma").format(at));
+    }
+
+    /** An hourly forecast label ("8 PM", "20h"), following the clock's 12/24-hour choice. */
+    static String hour(long at) {
+        return once(h24() ? "hour24" : "hour", at, () -> clockPattern("format|h a", "Hm", "ha").format(at));
     }
 
     private static final HashMap<String, String> FORMATTED = new HashMap<>();

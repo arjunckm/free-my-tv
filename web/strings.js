@@ -21,7 +21,7 @@ var I18N = (function () {
   var NAMES = {en: 'English', pt: 'Português', es: 'Español', de: 'Deutsch', fr: 'Français', it: 'Italiano',
     nl: 'Nederlands', pl: 'Polski', sv: 'Svenska', da: 'Dansk', nb: 'Norsk bokmål', fi: 'Suomi', cs: 'Čeština',
     ro: 'Română', tr: 'Türkçe', ru: 'Русский', uk: 'Українська', el: 'Ελληνικά', ja: '日本語', ko: '한국어',
-    'zh-CN': '中文', hi: 'हिन्दी', id: 'Indonesia', vi: 'Tiếng Việt', th: 'ไทย'};
+    'zh-CN': '简体中文', 'zh-TW': '繁體中文', hi: 'हिन्दी', id: 'Indonesia', vi: 'Tiếng Việt', th: 'ไทย'};
 
   /**
    * The CLDR plural category of a whole number, for TVs without Intl.PluralRules (Chromium before 63). Only the
@@ -130,9 +130,11 @@ var I18N = (function () {
     var h = d.getHours();
     switch (ch) {
       case 'y': return n === 2 ? pad(d.getFullYear() % 100, 2) : pad(d.getFullYear(), n);
-      case 'M': case 'L': return n >= 4 ? month(d, loc, ch === 'M') : n === 3 ? name(d, loc, {month: 'short'}) : pad(d.getMonth() + 1, n);
+      case 'M': case 'L':
+        if (n >= 4) return NO_INTL ? own('months', d.getMonth()) : month(d, loc, ch === 'M');
+        return n === 3 ? (NO_INTL ? own('shortMonths', d.getMonth()) : name(d, loc, {month: 'short'})) : pad(d.getMonth() + 1, n);
       case 'd': return pad(d.getDate(), n);
-      case 'E': return name(d, loc, {weekday: n >= 4 ? 'long' : 'short'});
+      case 'E': return NO_INTL ? own(n >= 4 ? 'weekdays' : 'shortWeekdays', d.getDay()) : name(d, loc, {weekday: n >= 4 ? 'long' : 'short'});
       case 'a': return dayPeriod(d, loc);
       case 'H': return pad(h, n);
       case 'k': return pad(h || 24, n);
@@ -152,6 +154,16 @@ var I18N = (function () {
 
   function name(d, loc, options) {
     try { return d.toLocaleDateString(loc, options); } catch (e) { return d.toLocaleDateString('en-US', options); }
+  }
+
+  /**
+   * Without Intl (Tizen 2.3 and 2.4) toLocaleDateString ignores its options and writes the whole date ("Wednesday,
+   * October 28, 2026") for a weekday or a month, so the catalogue's names (I18N.dateNames, in data.js) stand in there.
+   */
+  var NO_INTL = typeof Intl === 'undefined';
+
+  function own(kind, i) {
+    return I18N.dateNames ? I18N.dateNames(kind)[i] : String(i + 1);
   }
 
   /**
@@ -206,8 +218,9 @@ var I18N = (function () {
       if (code) return code;
     }
     var tv = (navigator.language || 'en').replace('_', '-');
-    // Simplified Chinese only where it is the written form (not Taiwan, Hong Kong or Macau).
-    if (base(tv) === 'zh' && /-(Hant|TW|HK|MO)\b/i.test(tv)) return 'en';
+    // Taiwan, Hong Kong and Macau write Traditional Chinese: never the Simplified catalogue there (unless the TV
+    // itself is set to Simplified, zh-Hans-HK).
+    if (base(tv) === 'zh' && !/-Hans\b/i.test(tv) && /-(Hant|TW|HK|MO)\b/i.test(tv)) return CATALOGUES['zh-TW'] ? 'zh-TW' : 'en';
     return match(base(tv)) || 'en';
   }
 
