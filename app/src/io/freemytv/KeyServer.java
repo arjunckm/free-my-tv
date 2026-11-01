@@ -31,8 +31,10 @@ public final class KeyServer {
     private static final long IDLE_MS = 10 * 60 * 1000;
     private static volatile long lastUse = SystemClock.elapsedRealtime();
 
-    /** Keys the phone's remote may press: arrows, OK, back, home, menu, play/pause, volume, mute, channel. Companion checks them too. */
-    static final int[] KEYS = {19, 20, 21, 22, 23, 4, 3, 82, 85, 86, 87, 88, 89, 90, 24, 25, 164, 166, 167, 126, 127, 66, 67};
+    /** Keys the phone remote may press: arrows, OK, back, home, menu, play/pause, volume, mute, channel, and text. Companion checks them too. */
+    static final int[] KEYS = {19, 20, 21, 22, 23, 4, 3, 82, 85, 86, 87, 88, 89, 90, 24, 25, 164, 166, 167, 126, 127, 66, 67,
+        7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
+        55, 56, 62, 69, 76};   // the last two lines: digits, letters, comma, period, space, minus, slash (typing from the phone)
     private static final int MAX_CLIENTS = 4;
     private static final java.util.concurrent.atomic.AtomicInteger clients = new java.util.concurrent.atomic.AtomicInteger();
 

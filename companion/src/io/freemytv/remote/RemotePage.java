@@ -8,6 +8,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -28,8 +29,43 @@ final class RemotePage {
         page.setGravity(Gravity.CENTER_HORIZONTAL);
         page.setPadding(Ui.dp(a, 24), Ui.dp(a, 8), Ui.dp(a, 24), Ui.dp(a, 16));
 
+        // Pad or touchpad, and the keyboard
+        LinearLayout modes = new LinearLayout(a);
+        modes.setGravity(Gravity.CENTER);
+        TextView padMode = Ui.pillButton(a, "Pad", !AppPrefs.touchpad());
+        TextView touchMode = Ui.pillButton(a, "Touchpad", AppPrefs.touchpad());
+        TextView typeMode = Ui.pillButton(a, "Keyboard", false);
+        for (TextView t : new TextView[] {padMode, touchMode, typeMode}) {
+            LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            mp.leftMargin = mp.rightMargin = Ui.dp(a, 4);
+            modes.addView(t, mp);
+        }
+        page.addView(modes);
+
         int pad = Math.min(a.getResources().getDisplayMetrics().widthPixels - Ui.dp(a, 80), Ui.dp(a, 300));
-        page.addView(new DPad(a, this::press), new LinearLayout.LayoutParams(pad, pad));
+        FrameLayout surface = new FrameLayout(a);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(pad, pad);
+        sp.topMargin = Ui.dp(a, 14);
+        page.addView(surface, sp);
+        Runnable draw = () -> {
+            surface.removeAllViews();
+            surface.addView(AppPrefs.touchpad() ? new Touchpad(a, this::press) : new DPad(a, this::press),
+                    new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            padMode.setBackground(Ui.ripple(a, AppPrefs.touchpad() ? Ui.SURFACE2 : Ui.ACCENT, 20));
+            padMode.setTextColor(AppPrefs.touchpad() ? Ui.TEXT : Ui.ON_ACCENT);
+            touchMode.setBackground(Ui.ripple(a, AppPrefs.touchpad() ? Ui.ACCENT : Ui.SURFACE2, 20));
+            touchMode.setTextColor(AppPrefs.touchpad() ? Ui.ON_ACCENT : Ui.TEXT);
+        };
+        padMode.setOnClickListener(v -> {
+            AppPrefs.setTouchpad(false);
+            draw.run();
+        });
+        touchMode.setOnClickListener(v -> {
+            AppPrefs.setTouchpad(true);
+            draw.run();
+        });
+        typeMode.setOnClickListener(v -> TypePad.show(a));
+        draw.run();
 
         page.addView(row(
                 key(R.drawable.ic_back, "Back", 4, false), key(R.drawable.ic_home, "Home", 3, false), key(R.drawable.ic_menu, "Menu", 82, false)));

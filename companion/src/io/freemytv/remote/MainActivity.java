@@ -622,6 +622,7 @@ public class MainActivity extends Activity {
         spin.setRepeatCount(ObjectAnimator.INFINITE);
         spin.setInterpolator(new LinearInterpolator());
         spin.start();
+        if (tab == 0 && Cache.apps() == null && pageHost != null) showTab(0);   // the loading cards
         Sync.refresh(error -> runOnUiThread(() -> {
             if (!key.equals(Tv.activeKey())) return;   // the person switched TV: that one's screen was built fresh
             if (spin != null) spin.cancel();

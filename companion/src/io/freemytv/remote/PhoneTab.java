@@ -39,6 +39,7 @@ final class PhoneTab {
                 v -> a.refresh());
         int paired = Tv.all().size();
         f.row(tv, R.drawable.ic_swap, ORANGE, "Your TVs", paired + (paired == 1 ? " TV" : " TVs"), v -> a.showTvMenu());
+        f.row(tv, R.drawable.ic_cloud, TEAL, "Check the connection", "", v -> Diagnostics.show(a));
         f.row(tv, R.drawable.ic_close, PINK, "Forget this TV", "", v -> a.confirmForget());
 
         LinearLayout remote = f.group(list, "Remote");

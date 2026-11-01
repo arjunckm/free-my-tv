@@ -31,7 +31,7 @@ final class AppsPage {
     private static final ExecutorService DECODE = Executors.newFixedThreadPool(2);
 
     private final MainActivity a;
-    private final Map<String, ImageView> images = new HashMap<>();
+    private final Map<String, List<ImageView>> images = new HashMap<>();
     private final List<JSONObject> apps = new ArrayList<>();
     private LinearLayout list;
     private String query = "";
@@ -40,7 +40,7 @@ final class AppsPage {
 
     View build() {
         JSONObject saved = Cache.apps();
-        if (saved == null) return a.empty("No apps yet", "Tap refresh to load the apps from your TV.", true);
+        if (saved == null) return Sync.refreshing(Tv.activeKey()) ? skeleton() : a.empty("No apps yet", "Tap refresh to load the apps from your TV.", true);
         try {
             JSONArray all = saved.getJSONArray("apps");
             for (int i = 0; i < all.length(); i++) apps.add(all.getJSONObject(i));
@@ -111,6 +111,19 @@ final class AppsPage {
             list.addView(none);
             return;
         }
+        String tv = Tv.activeKey();
+        if (query.isEmpty() && tv != null) {
+            List<JSONObject> pinned = byPackage(AppPrefs.pinned(tv)), recent = new ArrayList<>();
+            for (JSONObject r : byPackage(AppPrefs.recent(tv))) if (!pinned.contains(r)) recent.add(r);
+            if (!pinned.isEmpty()) {
+                list.addView(title("Pinned"));
+                list.addView(grid(pinned, 3));
+            }
+            if (!recent.isEmpty()) {
+                list.addView(title("Recently opened"));
+                list.addView(grid(recent, 3));
+            }
+        }
         if (!shelf.isEmpty()) {
             list.addView(title("On your shelf"));
             list.addView(grid(shelf, 2));
@@ -119,6 +132,53 @@ final class AppsPage {
             list.addView(title(shelf.isEmpty() ? "Apps" : "All apps"));
             list.addView(grid(rest, AppPrefs.columns()));
         }
+    }
+
+    /** The apps with these package names that the TV still has, in this order. */
+    private List<JSONObject> byPackage(List<String> packages) {
+        List<JSONObject> out = new ArrayList<>();
+        for (String p : packages) {
+            for (JSONObject app : apps) {
+                if (p.equals(app.optString("pkg"))) {
+                    out.add(app);
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Grey cards that pulse while the first copy of the TV is on its way. */
+    private View skeleton() {
+        LinearLayout page = new LinearLayout(a);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(Ui.dp(a, 16), Ui.dp(a, 16), Ui.dp(a, 16), 0);
+        TextView t = Ui.text(a, "Loading the apps from your TV…", 14, Ui.SUB, false);
+        t.setPadding(Ui.dp(a, 6), 0, 0, Ui.dp(a, 14));
+        page.addView(t);
+        GridLayout g = new GridLayout(a);
+        g.setColumnCount(3);
+        int width = (a.getResources().getDisplayMetrics().widthPixels - Ui.dp(a, 32)) / 3;
+        for (int i = 0; i < 12; i++) {
+            View block = new View(a);
+            block.setBackground(Ui.round(a, Ui.SURFACE, 18));
+            GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+            lp.width = width - Ui.dp(a, 8);
+            lp.height = Ui.dp(a, 96);
+            lp.setMargins(Ui.dp(a, 4), Ui.dp(a, 4), Ui.dp(a, 4), Ui.dp(a, 4));
+            g.addView(block, lp);
+        }
+        page.addView(g);
+        android.animation.ObjectAnimator pulse = android.animation.ObjectAnimator.ofFloat(g, "alpha", 1f, 0.45f);
+        pulse.setDuration(800);
+        pulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+        pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        pulse.start();
+        page.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {}
+            @Override public void onViewDetachedFromWindow(View v) { pulse.cancel(); }
+        });
+        return page;
     }
 
     private TextView title(String s) {
@@ -163,12 +223,23 @@ final class AppsPage {
         cell.addView(box, bp);
         box.setOnClickListener(v -> {
             Ui.haptic(v, android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+            if (Tv.activeKey() != null) AppPrefs.opened(Tv.activeKey(), pkg);
             try {
                 Sync.command("/launch", new JSONObject().put("pkg", pkg), error -> a.done(error, "Opening " + label + " on the TV"));
             } catch (JSONException ignored) {
             }
         });
-        images.put(pkg, image);
+        box.setOnLongClickListener(v -> {
+            String tv = Tv.activeKey();
+            if (tv == null) return true;
+            Ui.haptic(v, android.view.HapticFeedbackConstants.LONG_PRESS);
+            AppPrefs.togglePin(tv, pkg);
+            a.say(AppPrefs.isPinned(tv, pkg) ? "Pinned " + label : "Unpinned " + label);
+            fill();
+            return true;
+        });
+        if (!images.containsKey(pkg)) images.put(pkg, new ArrayList<>());
+        images.get(pkg).add(image);
         DECODE.execute(() -> {
             Bitmap b = Cache.icon(pkg);
             if (b != null) a.runOnUiThread(() -> showIcon(pkg, b));
@@ -184,8 +255,8 @@ final class AppsPage {
     }
 
     private void showIcon(String pkg, Bitmap b) {
-        ImageView v = images.get(pkg);
-        if (v != null) v.setImageBitmap(b);
+        List<ImageView> views = images.get(pkg);
+        if (views != null) for (ImageView v : views) v.setImageBitmap(b);
     }
 
     private static final class FrameHolder extends android.widget.FrameLayout {
