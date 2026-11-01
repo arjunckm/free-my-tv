@@ -347,6 +347,7 @@ public class Companion extends Service {
             case "/launch": return launch(new JSONObject(r.body).optString("pkg"));
             case "/share": return share(new JSONObject(r.body).optString("url"));
             case "/key": return key(new JSONObject(r.body).optInt("code", -1));
+            case "/notify": return notice(new JSONObject(r.body).optString("text"));
             case "/settings":
                 if (!r.method.equals("GET")) Prefs.importAll(new JSONObject(r.body));
                 return ok(settings().toString());
@@ -801,6 +802,16 @@ public class Companion extends Service {
         ComponentName cn = intent == null ? null : intent.getComponent();
         if (cn == null) return new Object[] {404, json("error", "not on the TV")};
         return background(Build.VERSION.SDK_INT < 29 ? intent : null, "am start -n " + cn.flattenToShortString());
+    }
+
+    /** A short message from the phone, shown on the TV as a notice (plain text, at most 140 characters). */
+    private Object[] notice(String text) {
+        String clean = text == null ? "" : text.replaceAll("\\p{Cntrl}", " ").trim();
+        if (clean.isEmpty()) return new Object[] {400, json("error", "empty")};
+        if (clean.length() > 140) clean = clean.substring(0, 140);
+        final String shown = clean;
+        main.post(() -> Toast.makeText(Companion.this, shown, Toast.LENGTH_LONG).show());
+        return ok(json("ok", true));
     }
 
     private Object[] share(String url) {

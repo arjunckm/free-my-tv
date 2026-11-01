@@ -74,10 +74,43 @@ final class RemotePage {
         page.addView(row(
                 key(R.drawable.ic_prev, "Previous", 88, false), key(R.drawable.ic_play_pause, "Play / pause", 85, false), key(R.drawable.ic_next, "Next", 87, false)));
 
+        scenes(page);
+
         ScrollView scroll = new ScrollView(a);
         scroll.setFillViewport(true);
         scroll.addView(page);
         return scroll;
+    }
+
+    /** Saved scenes of this TV: tap one to run it, hold to remove it. */
+    private void scenes(LinearLayout page) {
+        String tv = Tv.activeKey();
+        if (tv == null) return;
+        TextView head = Ui.text(a, "Scenes", 13, Ui.SUB, true);
+        head.setAllCaps(true);
+        head.setLetterSpacing(0.08f);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = Ui.dp(a, 28);
+        page.addView(head, hp);
+        LinearLayout box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        for (Tools.Scene s : Tools.scenes(tv)) {
+            TextView chip = Ui.pillButton(a, s.name + (s.label.isEmpty() || s.label.equals("No app") ? "" : "  ·  " + s.label), false);
+            chip.setOnClickListener(v -> Tools.run(a, s));
+            chip.setOnLongClickListener(v -> {
+                Tools.deleteScene(a, s, () -> a.showTab(1));
+                return true;
+            });
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            cp.topMargin = Ui.dp(a, 8);
+            box.addView(chip, cp);
+        }
+        TextView add = Ui.pillButton(a, "+  New scene", true);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ap.topMargin = Ui.dp(a, 8);
+        add.setOnClickListener(v -> Tools.newScene(a, () -> a.showTab(1)));
+        box.addView(add, ap);
+        page.addView(box, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private void press(int code) {

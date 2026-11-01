@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
         Cache.init(this);
         AppPrefs.init(this);
         Tv.load(this);
-        tab = AppPrefs.startTab();
+        tab = getIntent().getIntExtra("tab", -1) >= 0 ? Math.min(3, getIntent().getIntExtra("tab", 0)) : AppPrefs.startTab();
         nsd = (NsdManager) getSystemService(NSD_SERVICE);
         frame = new FrameLayout(this);
         frame.setBackgroundColor(Ui.BG);
@@ -120,6 +120,7 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
             if (snack == null) return;
             snack.setText(message);
+            snack.setOnClickListener(null);
             snack.animate().cancel();
             snack.setVisibility(View.VISIBLE);
             snack.setAlpha(0);
@@ -150,6 +151,9 @@ public class MainActivity extends Activity {
         online = false;
         runOnUiThread(this::updateSubtitle);
         say(error);
+        if (error != null && error.startsWith("Can't reach")) runOnUiThread(() -> {
+            if (snack != null) snack.setOnClickListener(v -> Diagnostics.show(this));   // tap the message to find out why
+        });
     }
 
     /** A command finished: show `ok` or the problem. */
@@ -535,7 +539,7 @@ public class MainActivity extends Activity {
         ping();
     }
 
-    private void showTab(int index) {
+    void showTab(int index) {
         tab = index;
         if (apps != null) apps.close();
         apps = null;

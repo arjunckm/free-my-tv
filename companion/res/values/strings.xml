@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_remote">Remote</string>
+    <string name="shortcut_remote_long">Open the TV remote</string>
+    <string name="shortcut_apps">TV apps</string>
+    <string name="shortcut_apps_long">Open the TV\'s apps</string>
+    <string name="tile_mute">TV mute</string>
+</resources>

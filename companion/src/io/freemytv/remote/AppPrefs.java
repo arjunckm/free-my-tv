@@ -63,6 +63,10 @@ final class AppPrefs {
         store("recent-" + tv, l);
     }
 
+    /** Scenes of one TV, as the JSON Tools writes. */
+    static String scenes(String tv) { return sp == null ? "[]" : sp.getString("scenes-" + tv, "[]"); }
+    static void setScenes(String tv, String json) { if (sp != null) sp.edit().putString("scenes-" + tv, json).apply(); }
+
     private static java.util.List<String> list(String name) {
         java.util.List<String> out = new java.util.ArrayList<>();
         String s = sp == null ? "" : sp.getString(name, "");

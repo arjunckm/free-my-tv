@@ -42,6 +42,11 @@ final class PhoneTab {
         f.row(tv, R.drawable.ic_cloud, TEAL, "Check the connection", "", v -> Diagnostics.show(a));
         f.row(tv, R.drawable.ic_close, PINK, "Forget this TV", "", v -> a.confirmForget());
 
+        LinearLayout tools = f.group(list, "Tools");
+        f.row(tools, R.drawable.ic_menu, BLUE, "Show a message on the TV", "", v -> Tools.message(a));
+        f.row(tools, R.drawable.ic_cloud, GREEN, "Copy this TV's settings", "To clone onto another TV", v -> Tools.exportSettings(a));
+        f.row(tools, R.drawable.ic_swap, ORANGE, "Import settings into this TV", "", v -> Tools.importSettings(a));
+
         LinearLayout remote = f.group(list, "Remote");
         f.toggle(remote, R.drawable.ic_vibrate, PURPLE, "Vibrate on key press", AppPrefs.haptics(), AppPrefs::setHaptics);
         f.toggle(remote, R.drawable.ic_vol_up, TEAL, "Volume buttons control the TV", AppPrefs.volumeKeys(), AppPrefs::setVolumeKeys);

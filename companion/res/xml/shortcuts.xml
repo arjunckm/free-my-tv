@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="remote" android:enabled="true" android:icon="@drawable/ic_remote"
+        android:shortcutShortLabel="@string/shortcut_remote" android:shortcutLongLabel="@string/shortcut_remote_long">
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="io.freemytv.remote"
+            android:targetClass="io.freemytv.remote.MainActivity">
+            <extra android:name="tab" android:value="1" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="apps" android:enabled="true" android:icon="@drawable/ic_apps"
+        android:shortcutShortLabel="@string/shortcut_apps" android:shortcutLongLabel="@string/shortcut_apps_long">
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="io.freemytv.remote"
+            android:targetClass="io.freemytv.remote.MainActivity">
+            <extra android:name="tab" android:value="0" />
+        </intent>
+    </shortcut>
+</shortcuts>
