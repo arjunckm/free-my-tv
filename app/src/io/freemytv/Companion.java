@@ -88,8 +88,68 @@ public class Companion extends Service {
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
+    private static volatile Companion instance;
+
+    /** The phone code on screen now, or null when none is waiting (PairCodeActivity shows it). */
+    static String pairingCode() {
+        Companion c = instance;
+        if (c == null) return null;
+        synchronized (c) {
+            return c.pin != null && System.currentTimeMillis() < c.pinUntil ? c.pin : null;
+        }
+    }
+
+    static long pairingSecondsLeft() {
+        Companion c = instance;
+        if (c == null) return 0;
+        synchronized (c) {
+            return (c.pinUntil - System.currentTimeMillis()) / 1000;
+        }
+    }
+
+    /** The paired phones as {id, name, last used in ms (0: never)}, for Settings. */
+    static java.util.List<String[]> phones(Context c) {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        try {
+            SharedPreferences sp = c.getSharedPreferences("companion", MODE_PRIVATE);
+            JSONObject d = new JSONObject(sp.getString("devices", "{}"));
+            for (java.util.Iterator<String> it = d.keys(); it.hasNext(); ) {
+                String id = it.next();
+                JSONObject one = d.getJSONObject(id);
+                long used = Math.max(one.optLong("last"), sp.getLong("last-" + id, 0));   // newest request accepted from it
+                out.add(new String[] {id, one.optString("name", "Phone"), String.valueOf(used)});
+            }
+        } catch (JSONException ignored) {
+        }
+        return out;
+    }
+
+    /** Settings forgets a phone: its token stops working at once. */
+    static void forgetPhone(Context c, String id) {
+        Companion live = instance;
+        if (live != null) {
+            live.unpairQuietly(id);
+            return;
+        }
+        try {
+            SharedPreferences sp = c.getSharedPreferences("companion", MODE_PRIVATE);
+            JSONObject d = new JSONObject(sp.getString("devices", "{}"));
+            d.remove(id);
+            sp.edit().putString("devices", d.toString()).remove("last-" + id).apply();
+        } catch (JSONException ignored) {
+        }
+    }
+
+    private synchronized void unpairQuietly(String id) {
+        JSONObject devices = devices();
+        devices.remove(id);
+        saveDevices(devices);
+        forget(id);
+    }
+
     @Override public void onCreate() {
         super.onCreate();
+        instance = this;
         Prefs.init(this);
         startForeground(1, notification());
         pool.execute(() -> serve());
@@ -491,12 +551,22 @@ public class Companion extends Service {
 
     /** The PIN as a notice on the TV every few seconds, until it is used or runs out. */
     private void showPin(String shown, long until) {
+        // The big code screen. Android 10 and newer start it through the TV's own ADB (a service may not open screens), which
+        // can be slow, so not here: pairStart holds the lock.
+        pool.execute(() -> {
+            try {
+                background(Build.VERSION.SDK_INT < 29 ? new Intent(this, PairCodeActivity.class) : null,
+                        "am start -n " + getPackageName() + "/.PairCodeActivity");
+            } catch (RuntimeException e) {
+                AppLog.w("companion: " + e.getMessage());
+            }
+        });
         main.post(new Runnable() {
             @Override public void run() {
                 synchronized (Companion.this) {
                     if (!shown.equals(pin) || System.currentTimeMillis() > until) return;
                 }
-                Toast.makeText(Companion.this, "Free My TV phone code: " + shown, Toast.LENGTH_LONG).show();
+                if (!PairCodeActivity.showing) Toast.makeText(Companion.this, "Free My TV phone code: " + shown, Toast.LENGTH_LONG).show();
                 main.postDelayed(this, 3500);
             }
         });

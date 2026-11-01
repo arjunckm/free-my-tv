@@ -371,6 +371,15 @@ final class Prefs {
         version++;
     }
 
+    /** How long each wallpaper stays while the hero is off: 15, 30, 60 or 300 seconds (the home screen looks every 15). */
+    static final int[] WALLPAPER_SECONDS = {15, 30, 60, 300};
+    static int wallpaperSeconds() {
+        int n = sp().getInt("wallpaperSeconds", 15);
+        for (int v : WALLPAPER_SECONDS) if (v == n) return n;
+        return 15;
+    }
+    static void setWallpaperSeconds(int n) { put("wallpaperSeconds", n); }
+
     /** How many titles the top cards browse through (3 are on screen at a time; → past the last one brings the next). */
     static int heroCards() { return Math.max(3, Math.min(8, sp().getInt("heroCards", 8))); }
     static void setHeroCards(int n) { put("heroCards", Math.max(3, Math.min(8, n))); }

@@ -152,14 +152,12 @@ final class Photos {
     private static File built, building;
     private static Backdrop backdrop;
 
-    /** How long each wallpaper stays while the hero is off (the home screen asks again every 15 s). */
-    private static final long WALLPAPER_MS = 15_000;
     /** The last 3 built, so a wallpaper that comes round again is not built again. */
     private static final java.util.Map<File, Backdrop> kept = new java.util.LinkedHashMap<>(4, 0.75f, true);
 
     /**
      * The photo to draw as the home screen's full-screen background, or null (off, or the first one still being built): this
-     * hour's of all of them without picks (no TMDB key); with the hero off, the next of the 3 wallpapers every WALLPAPER_MS.
+     * hour's of all of them without picks (no TMDB key); with the hero off, the next of the 3 wallpapers every Prefs.wallpaperSeconds().
      * The previous one stays until the new one is ready; then `ready` runs.
      */
     static synchronized Backdrop backdrop(Context c, Runnable ready) {
@@ -171,7 +169,7 @@ final class Photos {
             kept.clear();
             return null;
         }
-        long every = wallpapers ? WALLPAPER_MS : 3_600_000L;
+        long every = wallpapers ? Prefs.wallpaperSeconds() * 1000L : 3_600_000L;
         File want = list.get((int) ((System.currentTimeMillis() / every) % list.size()));
         Backdrop have = kept.get(want);
         if (have != null) {

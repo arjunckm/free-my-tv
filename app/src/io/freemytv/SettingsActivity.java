@@ -155,7 +155,8 @@ public class SettingsActivity extends Activity {
         private final List<String> shelfOrder = new ArrayList<>();
         private boolean editingTop;
         private int pickFor, pickCurrent, pickScroll;   // pickFor: the remote button (index + 1)
-        private static final int PICK_CITY = 0, PICK_LANGUAGE = -1;
+        private static final int PICK_CITY = 0, PICK_LANGUAGE = -1, PICK_PHONES = -2;
+        private final List<String> phoneIds = new ArrayList<>();
         private final List<String[]> cities = new ArrayList<>();
         private String cityStatus = "";
         private final RectF tmp = new RectF(), rowRect = new RectF(), focusBox = new RectF();
@@ -640,8 +641,8 @@ public class SettingsActivity extends Activity {
                         if (e.getRepeatCount() == 0) backDown = true;
                     } else {
                         if (backDown && !e.isCanceled()) {
-                            if (screen == PICKER && (pickFor == PICK_CITY || pickFor == PICK_LANGUAGE)) {
-                                focus = pickFor == PICK_CITY ? CITY_ROW : 0;
+                            if (screen == PICKER && (pickFor == PICK_CITY || pickFor == PICK_LANGUAGE || pickFor == PICK_PHONES)) {
+                                focus = pickFor == PICK_CITY ? CITY_ROW : pickFor == PICK_PHONES ? PHONES_ROW : 0;
                                 pickScroll = 0;   // both rows are on the list's first screen
                                 screen = HOME_SETTINGS;
                             } else if (screen == PICKER) {
@@ -667,7 +668,7 @@ public class SettingsActivity extends Activity {
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, quotes, date and time, hero cards, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, DATE_TIME_ROW = 8, HERO_ROW = 9, HERO_CARDS_ROW = 10, COIN_ROWS = 11;
+        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, DATE_TIME_ROW = 8, HERO_ROW = 9, HERO_CARDS_ROW = 10, WALLPAPER_ROW = 11, PHONES_ROW = 12, COIN_ROWS = 13;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -688,6 +689,8 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Date and time"));
             l.add(Ui.tr("Hero section"));
             l.add(Ui.tr("Hero cards"));
+            l.add(Ui.tr("Wallpaper timing"));
+            l.add(Ui.tr("Phone app"));
             l.add("Bitcoin");
             l.add("Ethereum");
             l.add("Solana");
@@ -725,11 +728,18 @@ public class SettingsActivity extends Activity {
             v[DATE_TIME_ROW] = onOff(Prefs.dateTime());
             v[HERO_ROW] = onOff(Prefs.hero());
             v[HERO_CARDS_ROW] = String.valueOf(Prefs.heroCards());
+            v[WALLPAPER_ROW] = wallpaperLabel(Prefs.wallpaperSeconds());
+            int phones = Companion.phones(getContext()).size();
+            v[PHONES_ROW] = phones == 0 ? Ui.tr("None paired") : Ui.plural("plural|one:{n} phone|other:{n} phones", phones);
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < updatesRow(); i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             v[updatesRow()] = updatesValue();
             if (traktRow() >= 0) v[traktRow()] = traktValue();
             return v;
+        }
+
+        private static String wallpaperLabel(int seconds) {
+            return seconds >= 60 ? Ui.trf("{n} min", "n", seconds / 60) : Ui.trf("{n} sec", "n", seconds);
         }
 
         /** "auto", then English and every language with a catalogue. */
@@ -813,6 +823,14 @@ public class SettingsActivity extends Activity {
                 case 7: Prefs.setQuotes(!Prefs.quotes()); break;
                 case DATE_TIME_ROW: Prefs.setDateTime(!Prefs.dateTime()); break;
                 case HERO_ROW: Prefs.setHero(!Prefs.hero()); break;   // off: no TMDB, and three of your photos take its place
+                case WALLPAPER_ROW: {
+                    int[] all = Prefs.WALLPAPER_SECONDS;
+                    int at = 0;
+                    for (int i = 0; i < all.length; i++) if (all[i] == Prefs.wallpaperSeconds()) at = i;
+                    Prefs.setWallpaperSeconds(all[(at + dir + all.length) % all.length]);
+                    break;
+                }
+                case PHONES_ROW: return;   // OK opens the list
                 case HERO_CARDS_ROW: {
                     int n = Prefs.heroCards() + dir;
                     Prefs.setHeroCards(n > 8 ? 3 : n < 3 ? 8 : n);   // 3 to 8, around
@@ -1079,6 +1097,16 @@ public class SettingsActivity extends Activity {
                     pickLabels.add(code.equals("auto") ? Ui.tr("Automatic") : Ui.languageName(code));
                 }
                 pickCurrent = java.util.Arrays.asList(choices).indexOf(Prefs.language());
+            } else if (which == PICK_PHONES) {
+                phoneIds.clear();
+                for (String[] p : Companion.phones(getContext())) {
+                    phoneIds.add(p[0]);
+                    long used = Long.parseLong(p[2]);
+                    pickLabels.add(p[1] + "  ·  " + (used == 0 ? Ui.tr("not used yet")
+                            : android.text.format.DateUtils.getRelativeTimeSpanString(used, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS)));
+                }
+                if (pickLabels.isEmpty()) pickLabels.add(Ui.tr("No phone is paired"));
+                pickCurrent = -1;
             } else {
                 pickLabels.addAll(appLabels);
                 pickCurrent = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[which - 1]));
@@ -1094,7 +1122,7 @@ public class SettingsActivity extends Activity {
         private void drawPicker(Canvas c) {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             String title = pickFor == PICK_CITY ? Ui.tr("City")
-                    : pickFor == PICK_LANGUAGE ? Ui.tr("Language") : keyLabels()[pickFor - 1];
+                    : pickFor == PICK_LANGUAGE ? Ui.tr("Language") : pickFor == PICK_PHONES ? Ui.tr("Phone app") : keyLabels()[pickFor - 1];
             c.drawText(title, LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
@@ -1111,7 +1139,7 @@ public class SettingsActivity extends Activity {
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            c.drawText((pickScroll + focus + 1) + " / " + pickLabels.size() + "  ·  " + Ui.tr("OK picks, Back cancels."),
+            c.drawText((pickScroll + focus + 1) + " / " + pickLabels.size() + "  ·  " + (pickFor == PICK_PHONES ? Ui.tr("OK forgets that phone, Back goes back.") : Ui.tr("OK picks, Back cancels.")),
                     LIST_X * k + 30 * k, hy, hint);
         }
 
@@ -1178,6 +1206,15 @@ public class SettingsActivity extends Activity {
                 focus = 0;
                 pickScroll = 0;
                 screen = HOME_SETTINGS;
+            } else if (screen == PICKER && pickFor == PICK_PHONES) {
+                int at = pickScroll + focus;
+                if (at < phoneIds.size()) {   // OK forgets that phone: its token stops working now
+                    Companion.forgetPhone(getContext(), phoneIds.get(at));
+                    openPicker(PICK_PHONES);
+                    focus = Math.min(focus, Math.max(0, pickLabels.size() - 1));
+                }
+                invalidate();
+                return;
             } else if (screen == PICKER) {
                 int at = pickScroll + focus;
                 Prefs.setKeyApp(Prefs.KEYS[pickFor - 1], appPkgs.get(at));
@@ -1191,6 +1228,8 @@ public class SettingsActivity extends Activity {
                 openPicker(focus + 1);
             } else if (screen == HOME_SETTINGS && pickScroll + focus == 0) {
                 openPicker(PICK_LANGUAGE);
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == PHONES_ROW) {
+                openPicker(PICK_PHONES);
             } else if (screen == HOME_SETTINGS && pickScroll + focus == CITY_ROW) {
                 askCity();
                 return;

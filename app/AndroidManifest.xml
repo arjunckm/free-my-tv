@@ -116,6 +116,18 @@
             </intent-filter>
         </activity>
 
+        <!-- The phone app's pairing code, big, while a phone is pairing. -->
+        <activity
+            android:name=".PairCodeActivity"
+            android:process=":home"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.freemytv.paircode"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/FreeMyTV.QuickSettings" />
+
         <activity
             android:name=".QuickSettingsActivity"
             android:process=":home"
