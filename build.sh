@@ -212,7 +212,8 @@ apksigner() {
   if [ -n "$BAT" ]; then "$JAVA" -jar "$BT/lib/apksigner.jar" "$@"
   else "$BT/apksigner" "$@"; fi
 }
-"$JAVAC" -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$AJ$CPSEP$BT/core-lambda-stubs.jar" -classpath "$AJ" \
+WP() { if [ -n "$BAT" ] && command -v cygpath >/dev/null; then cygpath -m "$1"; else printf "%s" "$1"; fi; }   # javac.exe wants C:/ paths in lists
+"$JAVAC" -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$(WP "$AJ")$CPSEP$(WP "$BT/core-lambda-stubs.jar")" -classpath "$(WP "$AJ")" \
   -encoding UTF-8 -d out/classes $(find app/src shared out/gen -name '*.java')
 d8 --release --min-api 26 --lib "$AJ" --output out $(find out/classes -name '*.class')
 if command -v zip >/dev/null; then (cd out && zip -qj base.apk classes.dex)
